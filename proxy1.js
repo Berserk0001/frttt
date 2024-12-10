@@ -136,7 +136,7 @@ function hhproxy(req, res) {
 const requestModule = parsedUrl.protocol === 'https:' ? https : http;
 
   try {
-    let originReq = requestModule.request(parsedUrl, options, (originRes) => {
+    let originReq = requestModule.get(parsedUrl, options, (originRes) => {
       // Handle non-2xx or redirect responses.
       if (
         originRes.statusCode >= 400 ||
@@ -167,7 +167,7 @@ const requestModule = parsedUrl.protocol === 'https:' ? https : http;
       }
     });
 
-    originReq.end();
+  //  originReq.end();
   } catch (err) {
     if (err.code === 'ERR_INVALID_URL') {
       return res.statusCode = 400, res.end("Invalid URL");
