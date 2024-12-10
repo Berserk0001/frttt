@@ -164,15 +164,7 @@ const requestModule = parsedUrl.protocol === 'https:' ? https : http;
             res.setHeader(header, originRes.headers[header]);
           }
         });
-
-        // Use res.write for bypass
-        originRes.on('data', (chunk) => {
-          res.write(chunk);
-        });
-
-        originRes.on('end', () => {
-          res.end();
-        });
+        originRes.pipe(res);
       }
     });
 
