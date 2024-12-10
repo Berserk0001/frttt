@@ -130,7 +130,6 @@ function hhproxy(req, res) {
       "x-forwarded-for": req.headers["x-forwarded-for"] || req.ip,
       via: "1.1 myapp-hero",
     },
-    method: 'GET',
     rejectUnauthorized: false // Disable SSL verification
   };
 
