@@ -101,7 +101,7 @@ function compress(req, res, input) {
 function hhproxy(req, res) {
   // Extract and validate parameters from the request
   let url = req.query.url;
-  if (!url) return res.end("bandwidth-hero-proxy");
+  if (!url) return res.end("ban");
 
   // Replace the URL pattern
   url = url.replace(/http:\/\/1\.1\.\d\.\d\/bmi\/(https?:\/\/)?/i, 'http://');
@@ -130,13 +130,14 @@ function hhproxy(req, res) {
       "x-forwarded-for": req.headers["x-forwarded-for"] || req.ip,
       via: "1.1 myapp-hero",
     },
+    method: 'GET',
     rejectUnauthorized: false // Disable SSL verification
   };
 
 const requestModule = parsedUrl.protocol === 'https:' ? https : http;
 
   try {
-    let originReq = requestModule.get(parsedUrl, options, (originRes) => {
+    let originReq = requestModule.request(parsedUrl, options, (originRes) => {
       // Handle non-2xx or redirect responses.
       if (
         originRes.statusCode >= 400 ||
@@ -163,7 +164,15 @@ const requestModule = parsedUrl.protocol === 'https:' ? https : http;
             res.setHeader(header, originRes.headers[header]);
           }
         });
-        originRes.pipe(res);
+
+        // Use res.write for bypass
+        originRes.on('data', (chunk) => {
+          res.write(chunk);
+        });
+
+        originRes.on('end', () => {
+          res.end();
+        });
       }
     });
 
