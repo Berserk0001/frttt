@@ -101,7 +101,7 @@ function compress(req, res, input) {
 function hhproxy(req, res) {
   // Extract and validate parameters from the request
   let url = req.query.url;
-  if (!url) return res.end("ban");
+  if (!url) return res.end("bandwidth-hero-proxy");
 
   // Replace the URL pattern
   url = url.replace(/http:\/\/1\.1\.\d\.\d\/bmi\/(https?:\/\/)?/i, 'http://');
