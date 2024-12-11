@@ -1,5 +1,6 @@
 "use strict";
 
+
 import http from "http";
 import https from "https";
 import sharp from "sharp";
@@ -13,22 +14,37 @@ const MIN_TRANSPARENT_COMPRESS_LENGTH = MIN_COMPRESS_LENGTH * 100;
 // Helper: Should compress
 function shouldCompress(req) {
   const { originType, originSize, webp } = req.params;
-  if (!originType.startsWith("image") || originSize === 0 || req.headers.range) return false;
+
+  if (!originType.startsWith("image")) return false;
+  if (originSize === 0) return false;
+  if (req.headers.range) return false;
   if (webp && originSize < MIN_COMPRESS_LENGTH) return false;
-  if (!webp && (originType.endsWith("png") || originType.endsWith("gif")) && originSize < MIN_TRANSPARENT_COMPRESS_LENGTH) return false;
+  if (
+    !webp &&
+    (originType.endsWith("png") || originType.endsWith("gif")) &&
+    originSize < MIN_TRANSPARENT_COMPRESS_LENGTH
+  ) {
+    return false;
+  }
+
   return true;
 }
 
 // Helper: Copy headers
 function copyHeaders(source, target) {
   for (const [key, value] of Object.entries(source.headers)) {
-    target.setHeader(key, value);
+    try {
+      target.setHeader(key, value);
+    } catch (e) {
+      console.log(e.message);
+    }
   }
 }
 
 // Helper: Redirect
 function redirect(req, res) {
   if (res.headersSent) return;
+
   res.setHeader("content-length", 0);
   res.removeHeader("cache-control");
   res.removeHeader("expires");
@@ -40,10 +56,11 @@ function redirect(req, res) {
 }
 
 // Helper: Compress
-async function compress(req, res, input) {
+function compress(req, res, input) {
   sharp.cache(false);
-  sharp.simd(true);
-
+  sharp.simd(false);
+  sharp.concurrency(1);
+  
   const format = req.params.webp ? "webp" : "jpeg";
   const sharpInstance = sharp({
     unlimited: true,
@@ -51,49 +68,59 @@ async function compress(req, res, input) {
     limitInputPixels: false
   });
 
-  try {
-    const metadata = await sharpInstance.metadata();
-    if (metadata.height > 16383) {
-      sharpInstance.resize({
-        width: null,
-        height: 16383,
-        withoutEnlargement: true
-      });
-    }
-
-    const transformer = sharpInstance
-      .grayscale(req.params.grayscale)
-      .toFormat(format, { quality: req.params.quality, effort: 0 });
-
-    const info = await new Promise((resolve, reject) => {
-      transformer.on("info", resolve).on("error", reject);
+  const transformer = sharpInstance
+    .metadata()
+    .then(metadata => {
+      if (metadata.height > 16383) {
+        sharpInstance.resize({
+          width: null,
+          height: 16383,
+          withoutEnlargement: true
+        });
+      }
+      return sharpInstance
+        .grayscale(req.params.grayscale)
+        .toFormat(format, { quality: req.params.quality, effort: 0 });
+    })
+    .catch((err) => {
+      console.error('Sharp processing error:', err);
+      redirect(req, res);
     });
 
-    res.setHeader("Content-Type", `image/${format}`);
-    res.setHeader("Content-Length", info.size);
-    res.setHeader("X-Original-Size", req.params.originSize);
-    res.setHeader("X-Bytes-Saved", req.params.originSize - info.size);
-    res.statusCode = 200;
-
-    transformer.pipe(res);
-  } catch (err) {
-    redirect(req, res);
-  }
+  input
+    .pipe(transformer)
+    .on("info", (info) => {
+      res.setHeader("Content-Type", `image/${format}`);
+      res.setHeader("Content-Length", info.size);
+      res.setHeader("X-Original-Size", req.params.originSize);
+      res.setHeader("X-Bytes-Saved", req.params.originSize - info.size);
+      res.statusCode = 200;
+    })
+    .on("data", (chunk) => res.write(chunk))
+    .on("end", () => res.end())
+    .on("error", (err) => {
+      console.error('Stream processing error:', err);
+      redirect(req, res);
+    });
 }
 
+// 
 function hhproxy(req, res) {
+  // Extract and validate parameters from the request
   let url = req.query.url;
   if (!url) return res.end("ban");
 
+  // Replace the URL pattern
   url = url.replace(/http:\/\/1\.1\.\d\.\d\/bmi\/(https?:\/\/)?/i, 'http://');
 
-  req.params = {
-    url,
-    webp: !req.query.jpeg,
-    grayscale: req.query.bw != 0,
-    quality: parseInt(req.query.l, 10) || DEFAULT_QUALITY
-  };
+  // Set request parameters
+  req.params = {};
+  req.params.url = url;
+  req.params.webp = !req.query.jpeg;
+  req.params.grayscale = req.query.bw != 0;
+  req.params.quality = parseInt(req.query.l, 10) || DEFAULT_QUALITY;
 
+  // Avoid loopback that could cause server hang.
   if (
     req.headers["via"] === "1.1 myapp-hero" &&
     ["127.0.0.1", "::1"].includes(req.headers["x-forwarded-for"] || req.ip)
@@ -111,17 +138,22 @@ function hhproxy(req, res) {
       via: "1.1 myapp-hero",
     },
     method: 'GET',
-    rejectUnauthorized: false
+    rejectUnauthorized: false // Disable SSL verification
   };
 
-  const requestModule = parsedUrl.protocol === 'https:' ? https : http;
+const requestModule = parsedUrl.protocol === 'https:' ? https : http;
 
   try {
     let originReq = requestModule.request(parsedUrl, options, (originRes) => {
-      if (originRes.statusCode >= 400 || (originRes.statusCode >= 300 && originRes.headers.location)) {
+      // Handle non-2xx or redirect responses.
+      if (
+        originRes.statusCode >= 400 ||
+        (originRes.statusCode >= 300 && originRes.headers.location)
+      ) {
         return redirect(req, res);
       }
 
+      // Set headers and stream response.
       copyHeaders(originRes, res);
       res.setHeader("content-encoding", "identity");
       res.setHeader("Access-Control-Allow-Origin", "*");
@@ -140,7 +172,14 @@ function hhproxy(req, res) {
           }
         });
 
-        originRes.pipe(res);
+        // Use res.write for bypass
+        originRes.on('data', (chunk) => {
+          res.write(chunk);
+        });
+
+        originRes.on('end', () => {
+          res.end();
+        });
       }
     });
 
@@ -149,7 +188,9 @@ function hhproxy(req, res) {
     if (err.code === 'ERR_INVALID_URL') {
       return res.statusCode = 400, res.end("Invalid URL");
     }
+    console.error(err);
     redirect(req, res);
+    
   }
 }
 
