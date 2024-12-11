@@ -55,7 +55,8 @@ function redirect(req, res) {
 }
 
 // Helper: Compress
-async function compress(req, res, input) {
+// Helper: Compress
+function compress(req, res, input) {
   sharp.cache(false);
   sharp.simd(true);
 
@@ -66,38 +67,35 @@ async function compress(req, res, input) {
     limitInputPixels: false
   });
 
-  try {
-    const metadata = await sharpInstance.metadata();
-    if (metadata.height > 16383) {
-      sharpInstance.resize({
-        width: null,
-        height: 16383,
-        withoutEnlargement: true
-      });
-    }
+  input
+    .pipe(sharpInstance)
+    .metadata((err, metadata) => {
+      if (err) {
+        return redirect(req, res);
+      }
 
-    const transform = sharpInstance
-      .grayscale(req.params.grayscale)
-      .toFormat(format, { quality: req.params.quality, effort: 0 });
+      if (metadata.height > 16383) {
+        sharpInstance.resize({
+          width: null,
+          height: 16383,
+          withoutEnlargement: true
+        });
+      }
 
-    res.setHeader("Content-Type", `image/${format}`);
-    res.setHeader("X-Original-Size", req.params.originSize);
-    
-    await new Promise((resolve, reject) => {
-      transform.on("info", (info) => {
-        res.setHeader("Content-Length", info.size);
-        res.setHeader("X-Bytes-Saved", req.params.originSize - info.size);
-        res.statusCode = 200;
-      })
-      .on("error", reject)
-      .pipe(res)
-      .on('finish', resolve)
-      .on('error', reject);
+      sharpInstance
+        .grayscale(req.params.grayscale)
+        .toFormat(format, { quality: req.params.quality, effort: 0 })
+        .on("info", (info) => {
+          res.setHeader("Content-Type", `image/${format}`);
+          res.setHeader("Content-Length", info.size);
+          res.setHeader("X-Original-Size", req.params.originSize);
+          res.setHeader("X-Bytes-Saved", req.params.originSize - info.size);
+          res.statusCode = 200;
+        })
+        .on("data", chunk => res.write(chunk))
+        .on("end", () => res.end())
+        .on("error", () => redirect(req, res));
     });
-  } catch (error) {
-    console.error('Compression error:', error);
-    redirect(req, res);
-  }
 }
 
 // Main proxy function
