@@ -112,7 +112,7 @@ function compress(req, res, input) {
         sharpInstance.on("error", () => redirect(req, res));
 
         // Send the buffered data to sharpInstance
-       // sharpInstance.end(buffer);
+        sharpInstance.end(buffer);
       })
       .catch(() => redirect(req, res));
   });
