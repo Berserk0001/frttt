@@ -71,82 +71,61 @@ function compress(req, res, input) {
   });
 
   let buffer = Buffer.alloc(0);
-  let isProcessing = false;
 
+  // Collect input into a buffer
   input.on("data", (chunk) => {
     buffer = Buffer.concat([buffer, chunk]);
-
-    // Process the buffer in chunks if not already processing
-    if (!isProcessing) {
-      isProcessing = true;
-
-      processNextChunk();
-    }
   });
 
   input.on("end", () => {
-    if (buffer.length > 0) {
-      processFinalChunk();
-    }
-  });
+    let offset = 0; // Track processing of chunks
 
-  input.on("error", () => redirect(req, res));
+    const processChunk = (chunk) => {
+      try {
+        // Process the chunk using sharp
+        sharp(chunk)
+          .metadata()
+          .then((metadata) => {
+            if (metadata.height > 16383) {
+              sharpInstance.resize({
+                width: null,
+                height: 16383,
+                withoutEnlargement: true,
+              });
+            }
 
-  function processNextChunk() {
-    // Process the next chunk of the buffer
-    const chunk = buffer.slice(0, 1024 * 1024); // Example: Process 1 MB at a time
-    buffer = buffer.slice(1024 * 1024);
+            // Apply transformations
+            sharpInstance
+              .grayscale(req.params.grayscale)
+              .toFormat(format, { quality: req.params.quality, effort: 0 });
 
-    sharp(chunk)
-      .metadata()
-      .then((metadata) => {
-        if (metadata.height > 16383) {
-          sharpInstance.resize({
-            width: null,
-            height: 16383,
-            withoutEnlargement: true,
+            sharpInstance.on("info", (info) => {
+              res.setHeader("Content-Type", `image/${format}`);
+              res.setHeader("Content-Length", info.size);
+              res.setHeader("X-Original-Size", req.params.originSize);
+              res.setHeader("X-Bytes-Saved", req.params.originSize - info.size);
+              res.statusCode = 200;
+            });
+
+            sharpInstance.on("data", (chunk) => {
+              if (!res.write(chunk)) {
+                sharpInstance.pause();
+                res.once("drain", () => sharpInstance.resume());
+              }
+            });
+
+            sharpInstance.on("end", () => res.end());
+            sharpInstance.on("error", () => redirect(req, res));
+
+            sharpInstance.end(chunk);
           });
-        }
-
-        sharpInstance
-          .grayscale(req.params.grayscale)
-          .toFormat(format, { quality: req.params.quality, effort: 0 });
-
-        sharpInstance.on("info", (info) => {
-          res.setHeader("Content-Type", `image/${format}`);
-          res.setHeader("Content-Length", info.size);
-          res.setHeader("X-Original-Size", req.params.originSize);
-          res.setHeader("X-Bytes-Saved", req.params.originSize - info.size);
-          res.statusCode = 200;
-        });
-
-        sharpInstance.on("data", (chunk) => {
-          if (!res.write(chunk)) {
-            sharpInstance.pause();
-            res.once("drain", () => sharpInstance.resume());
-          }
-        });
-
-        sharpInstance.on("end", () => {
-          if (buffer.length > 0) {
-            processNextChunk();
-          } else {
-            res.end();
-          }
-        });
-
-        sharpInstance.on("error", () => redirect(req, res));
-
-        // Send the chunk to sharpInstance
-        sharpInstance.write(chunk);
-      })
-      .catch(() => redirect(req, res));
-  }
-
-  function processFinalChunk() {
-    sharpInstance.end(buffer);
-  }
+      } catch (err) {
+        res.error(`Error ${err}`);
+      }
+    };
+  });
 }
+
 
 
 
