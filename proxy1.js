@@ -57,6 +57,8 @@ function redirect(req, res) {
 
 // Helper: Compress
 function compress(req, res, input) {
+  const sharp = require("sharp");
+
   sharp.cache(false);
   sharp.simd(false);
   sharp.concurrency(1);
@@ -69,15 +71,33 @@ function compress(req, res, input) {
   });
 
   let buffer = Buffer.alloc(0);
+  let isProcessing = false;
 
-  // Collect input into a buffer
   input.on("data", (chunk) => {
     buffer = Buffer.concat([buffer, chunk]);
+
+    // Process the buffer in chunks if not already processing
+    if (!isProcessing) {
+      isProcessing = true;
+
+      processNextChunk();
+    }
   });
 
   input.on("end", () => {
-    // Extract metadata from the buffer
-    sharp(buffer)
+    if (buffer.length > 0) {
+      processFinalChunk();
+    }
+  });
+
+  input.on("error", () => redirect(req, res));
+
+  function processNextChunk() {
+    // Process the next chunk of the buffer
+    const chunk = buffer.slice(0, 1024 * 1024); // Example: Process 1 MB at a time
+    buffer = buffer.slice(1024 * 1024);
+
+    sharp(chunk)
       .metadata()
       .then((metadata) => {
         if (metadata.height > 16383) {
@@ -88,7 +108,6 @@ function compress(req, res, input) {
           });
         }
 
-        // Apply transformations and output format
         sharpInstance
           .grayscale(req.params.grayscale)
           .toFormat(format, { quality: req.params.quality, effort: 0 });
@@ -108,17 +127,27 @@ function compress(req, res, input) {
           }
         });
 
-        sharpInstance.on("end", () => res.end());
+        sharpInstance.on("end", () => {
+          if (buffer.length > 0) {
+            processNextChunk();
+          } else {
+            res.end();
+          }
+        });
+
         sharpInstance.on("error", () => redirect(req, res));
 
-        // Send the buffered data to sharpInstance
-        sharpInstance.end(buffer);
+        // Send the chunk to sharpInstance
+        sharpInstance.write(chunk);
       })
       .catch(() => redirect(req, res));
-  });
+  }
 
-  input.on("error", () => redirect(req, res));
+  function processFinalChunk() {
+    sharpInstance.end(buffer);
+  }
 }
+
 
 
 
