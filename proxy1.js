@@ -120,9 +120,9 @@ function compress(req, res, input) {
   input.on("error", () => redirect(req, res));
 
   // Finish processing by ending the sharp instance
-  /*input.on("end", () => {
+  input.on("end", () => {
     sharpInstance.end();
-  });*/
+  });
 }
 
 
