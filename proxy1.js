@@ -117,12 +117,12 @@ function compress(req, res, input) {
   })
 
   // Handle error in input stream
-  input.on("error", () => redirect(req, res))
+  input.on("error", () => redirect(req, res));
 
   // Finish processing by ending the sharp instance
-/*  input.on("end", () => {
+  
     sharpInstance.end()
-  })*/
+  
 }
 
 
