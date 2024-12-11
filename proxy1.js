@@ -1,6 +1,5 @@
 "use strict";
 
-
 import http from "http";
 import https from "https";
 import sharp from "sharp";
@@ -36,7 +35,7 @@ function copyHeaders(source, target) {
     try {
       target.setHeader(key, value);
     } catch (e) {
-      console.log(e.message);
+      console.error(`Error setting header ${key}: ${e.message}`);
     }
   }
 }
@@ -45,21 +44,15 @@ function copyHeaders(source, target) {
 function redirect(req, res) {
   if (res.headersSent) return;
 
-  res.setHeader("content-length", 0);
-  res.removeHeader("cache-control");
-  res.removeHeader("expires");
-  res.removeHeader("date");
-  res.removeHeader("etag");
-  res.setHeader("location", encodeURI(req.params.url));
   res.statusCode = 302;
+  res.setHeader('Location', encodeURI(req.params.url));
   res.end();
 }
 
 // Helper: Compress
-function compress(req, res, input) {
+async function compress(req, res, input) {
   sharp.cache(false);
   sharp.simd(true);
- // sharp.concurrency(1);
   
   const format = req.params.webp ? "webp" : "jpeg";
   const sharpInstance = sharp({
@@ -68,50 +61,54 @@ function compress(req, res, input) {
     limitInputPixels: false
   });
 
+  try {
+    const metadata = await new Promise((resolve, reject) => {
+      input.pipe(sharpInstance.metadata()).once('metadata', resolve).once('error', reject);
+    });
 
-  input
-    .pipe(sharpInstance)
-    .metadata()
-    .then(metadata => {
-      if (metadata.height > 16383) {
-        sharpInstance.resize({
-          width: null,
-          height: 16383,
-          withoutEnlargement: true
-        });
-      }
-      return sharpInstance
-        .grayscale(req.params.grayscale)
-        .toFormat(format, { quality: req.params.quality, effort: 0 })
-        .on("info", (info) => {
-          res.setHeader("Content-Type", `image/${format}`);
-          res.setHeader("Content-Length", info.size);
-          res.setHeader("X-Original-Size", req.params.originSize);
-          res.setHeader("X-Bytes-Saved", req.params.originSize - info.size);
-          res.statusCode = 200;
-        })
-        .on("data", chunk => res.write(chunk))
-        .on("end", () => res.end())
-        .on("error", () => redirect(req, res));
-    })
-    .catch(() => redirect(req, res));
+    if (metadata.height > 16383) {
+      sharpInstance.resize({
+        width: null,
+        height: 16383,
+        withoutEnlargement: true
+      });
+    }
+
+    const transformer = sharpInstance
+      .grayscale(req.params.grayscale)
+      .toFormat(format, { quality: req.params.quality, effort: 0 });
+
+    res.setHeader("Content-Type", `image/${format}`);
+    res.setHeader("X-Original-Size", req.params.originSize);
+
+    transformer.on("info", (info) => {
+      res.setHeader("Content-Length", info.size);
+      res.setHeader("X-Bytes-Saved", req.params.originSize - info.size);
+      res.statusCode = 200;
+    });
+
+    input.pipe(transformer).pipe(res);
+  } catch (error) {
+    redirect(req, res);
+  }
 }
 
-// 
+// Main function
 function hhproxy(req, res) {
   // Extract and validate parameters from the request
   let url = req.query.url;
-  if (!url) return res.end("ban");
+  if (!url) return res.status(400).end("Invalid URL");
 
   // Replace the URL pattern
   url = url.replace(/http:\/\/1\.1\.\d\.\d\/bmi\/(https?:\/\/)?/i, 'http://');
 
   // Set request parameters
-  req.params = {};
-  req.params.url = url;
-  req.params.webp = !req.query.jpeg;
-  req.params.grayscale = req.query.bw != 0;
-  req.params.quality = parseInt(req.query.l, 10) || DEFAULT_QUALITY;
+  req.params = {
+    url,
+    webp: !req.query.jpeg,
+    grayscale: req.query.bw !== '0',
+    quality: parseInt(req.query.l, 10) || DEFAULT_QUALITY,
+  };
 
   // Avoid loopback that could cause server hang.
   if (
@@ -134,10 +131,10 @@ function hhproxy(req, res) {
     rejectUnauthorized: false // Disable SSL verification
   };
 
-const requestModule = parsedUrl.protocol === 'https:' ? https : http;
+  const requestModule = parsedUrl.protocol === 'https:' ? https : http;
 
   try {
-    let originReq = requestModule.request(parsedUrl, options, (originRes) => {
+    const originReq = requestModule.request(parsedUrl, options, (originRes) => {
       // Handle non-2xx or redirect responses.
       if (
         originRes.statusCode >= 400 ||
@@ -153,10 +150,10 @@ const requestModule = parsedUrl.protocol === 'https:' ? https : http;
       res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
       res.setHeader("Cross-Origin-Embedder-Policy", "unsafe-none");
       req.params.originType = originRes.headers["content-type"] || "";
-      req.params.originSize = originRes.headers["content-length"] || "0";
+      req.params.originSize = parseInt(originRes.headers["content-length"] || "0", 10);
 
       if (shouldCompress(req)) {
-        return compress(req, res, originRes);
+        compress(req, res, originRes);
       } else {
         res.setHeader("x-proxy-bypass", 1);
         ["accept-ranges", "content-type", "content-length", "content-range"].forEach((header) => {
@@ -165,25 +162,19 @@ const requestModule = parsedUrl.protocol === 'https:' ? https : http;
           }
         });
 
-        // Use res.write for bypass
-        originRes.on('data', (chunk) => {
-          res.write(chunk);
-        });
-
-        originRes.on('end', () => {
-          res.end();
-        });
+        originRes.pipe(res);
       }
     });
 
+    originReq.on('error', (err) => {
+      console.error('Request Error:', err.message);
+      redirect(req, res);
+    });
+    
     originReq.end();
   } catch (err) {
-    if (err.code === 'ERR_INVALID_URL') {
-      return res.statusCode = 400, res.end("Invalid URL");
-    }
-    console.error(err);
+    console.error('Error in hhproxy:', err.message);
     redirect(req, res);
-    
   }
 }
 
