@@ -104,11 +104,8 @@ function compress(req, res, input) {
 
         // Stream the data to the response
         sharpInstance.on("data", (chunk) => {
-          if (!res.write(chunk)) {
-            sharpInstance.pause();
-            res.once("drain", () => sharpInstance.resume());
-          }
-        });
+          res.write(chunk)
+        })
 
         // End the response when sharp finishes
         sharpInstance.on("end", () => res.end());
@@ -123,9 +120,9 @@ function compress(req, res, input) {
   input.on("error", () => redirect(req, res));
 
   // Finish processing by ending the sharp instance
-  input.on("end", () => {
+  /*input.on("end", () => {
     sharpInstance.end();
-  });
+  });*/
 }
 
 
