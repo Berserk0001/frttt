@@ -57,6 +57,10 @@ function redirect(req, res) {
 
 // Helper: Compress
 function compress(req, res, input) {
+  sharp.cache(false);
+  sharp.simd(false);
+  sharp.concurrency(1);
+
   const format = req.params.webp ? "webp" : "jpeg";
   const sharpInstance = sharp({
     unlimited: true,
@@ -65,67 +69,57 @@ function compress(req, res, input) {
   });
 
   let buffer = Buffer.alloc(0);
-  let metadata = null;
 
-  // Collect data in chunks until we have enough to extract metadata
+  // Collect input into a buffer
   input.on("data", (chunk) => {
     buffer = Buffer.concat([buffer, chunk]);
-
-    // Extract metadata once we have enough data
-    if (!metadata) {
-      sharp(buffer)
-        .metadata()
-        .then((meta) => {
-          metadata = meta;
-
-          // Apply resizing if needed
-          if (metadata.height > 16383) {
-            sharpInstance.resize({
-              width: null,
-              height: 16383,
-              withoutEnlargement: true,
-            });
-          }
-
-          // Apply other transformations
-          sharpInstance
-            .grayscale(req.params.grayscale)
-            .toFormat(format, { quality: req.params.quality, effort: 0 });
-
-          // Pipe the remaining data into sharpInstance for transformation
-          sharpInstance
-            .on("info", (info) => {
-              res.setHeader("Content-Type", `image/${format}`);
-              res.setHeader("Content-Length", info.size);
-              res.setHeader("X-Original-Size", req.params.originSize);
-              res.setHeader("X-Bytes-Saved", req.params.originSize - info.size);
-              res.statusCode = 200;
-            })
-            .on("data", (dataChunk) => {
-              if (!res.write(dataChunk)) {
-                sharpInstance.pause();
-                res.once("drain", () => sharpInstance.resume());
-              }
-            })
-            .on("end", () => res.end())
-            .on("error", () => redirect(req, res));
-
-          sharpInstance.end(buffer);
-        })
-        .catch(() => redirect(req, res));
-    }
   });
 
-  // Handle stream end
   input.on("end", () => {
-    if (!metadata) {
-      // If metadata couldn't be extracted, handle the error
-      redirect(req, res);
-    }
+    // Extract metadata from the buffer
+    sharp(buffer)
+      .metadata()
+      .then((metadata) => {
+        if (metadata.height > 16383) {
+          sharpInstance.resize({
+            width: null,
+            height: 16383,
+            withoutEnlargement: true,
+          });
+        }
+
+        // Apply transformations and output format
+        sharpInstance
+          .grayscale(req.params.grayscale)
+          .toFormat(format, { quality: req.params.quality, effort: 0 });
+
+        sharpInstance.on("info", (info) => {
+          res.setHeader("Content-Type", `image/${format}`);
+          res.setHeader("Content-Length", info.size);
+          res.setHeader("X-Original-Size", req.params.originSize);
+          res.setHeader("X-Bytes-Saved", req.params.originSize - info.size);
+          res.statusCode = 200;
+        });
+
+        sharpInstance.on("data", (chunk) => {
+          if (!res.write(chunk)) {
+            sharpInstance.pause();
+            res.once("drain", () => sharpInstance.resume());
+          }
+        });
+
+        sharpInstance.on("end", () => res.end());
+        sharpInstance.on("error", () => redirect(req, res));
+
+        // Send the buffered data to sharpInstance
+        sharpInstance.end(buffer);
+      })
+      .catch(() => redirect(req, res));
   });
 
   input.on("error", () => redirect(req, res));
 }
+
 
 
 // 
