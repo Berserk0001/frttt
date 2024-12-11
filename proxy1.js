@@ -57,10 +57,6 @@ function redirect(req, res) {
 
 // Helper: Compress
 function compress(req, res, input) {
-  sharp.cache(false);
-  sharp.simd(false);
-  sharp.concurrency(1);
-
   const format = req.params.webp ? "webp" : "jpeg";
   const sharpInstance = sharp({
     unlimited: true,
@@ -68,66 +64,71 @@ function compress(req, res, input) {
     limitInputPixels: false,
   });
 
-  let metadataReceived = false;
+  let metadata = null;
+  let transform = sharpInstance;
 
-  // First, we need to fetch metadata before starting transformations.
   input
     .on("data", (chunk) => {
-      if (!metadataReceived) {
-        // Temporarily store the first chunk to extract metadata.
-        sharpInstance.write(chunk);
-      } else {
-        // Once metadata is received, process the rest of the data in chunks.
-        sharpInstance.write(chunk);
+      // If metadata has not been retrieved, start metadata extraction
+      if (!metadata) {
+        // Pass the chunk to sharp to extract metadata as the image data streams
+        sharp(chunk)
+          .metadata()
+          .then((meta) => {
+            metadata = meta;
+
+            // If height exceeds 16,383, apply resizing
+            if (metadata.height > 16383) {
+              transform = sharp(chunk).resize({
+                width: null,
+                height: 16383,
+                withoutEnlargement: true,
+              });
+            }
+
+            // Apply grayscale and convert format after metadata extraction
+            transform = transform
+              .grayscale(req.params.grayscale)
+              .toFormat(format, { quality: req.params.quality, effort: 0 });
+
+            // Send transformed data to the response
+            transform.on("data", (dataChunk) => {
+              if (!res.write(dataChunk)) {
+                transform.pause();
+                res.once("drain", () => transform.resume());
+              }
+            });
+
+            transform.on("end", () => res.end());
+            transform.on("error", (err) => {
+              console.error(err);
+              redirect(req, res);
+            });
+          })
+          .catch((err) => {
+            console.error(err);
+            redirect(req, res);
+          });
+      }
+
+      // Continue processing data if metadata is already retrieved
+      if (metadata) {
+        transform.write(chunk);  // Continue writing data to sharpInstance for transformation
       }
     })
-    .on("end", async () => {
-      try {
-        // Only once all data is written do we proceed with metadata extraction.
-        const metadata = await sharpInstance.metadata();
-
-        // Handle resizing if the height exceeds 16383 pixels.
-        if (metadata.height > 16383) {
-          sharpInstance.resize({
-            width: null,
-            height: 16383,
-            withoutEnlargement: true,
-          });
-        }
-
-        // Apply grayscale and set output format (JPEG or WebP)
-        sharpInstance
-          .grayscale(req.params.grayscale)
-          .toFormat(format, { quality: req.params.quality, effort: 0 });
-
-        // Handle transformation info (such as image size after transformation)
-        sharpInstance.on("info", (info) => {
-          res.setHeader("Content-Type", `image/${format}`);
-          res.setHeader("Content-Length", info.size);
-          res.setHeader("X-Original-Size", req.params.originSize);
-          res.setHeader("X-Bytes-Saved", req.params.originSize - info.size);
-          res.statusCode = 200;
-        });
-
-        // Stream the transformed data to the response in chunks
-        sharpInstance.on("data", (chunk) => {
-          if (!res.write(chunk)) {
-            sharpInstance.pause();
-            res.once("drain", () => sharpInstance.resume());
-          }
-        });
-
-        // End the response once all data is processed
-        sharpInstance.on("end", () => res.end());
-      } catch (err) {
-        console.error(err);
-        redirect(req, res);
+    .on("end", () => {
+      // When the input stream ends, ensure sharpInstance completes processing
+      if (metadata) {
+        transform.end();
       }
     })
     .on("error", (err) => {
       console.error(err);
       redirect(req, res);
     });
+
+  // Handling metadata extraction in real-time while processing chunks
+  input.pipe(sharpInstance);
 }
 
 
