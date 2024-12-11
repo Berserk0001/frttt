@@ -59,17 +59,15 @@ function redirect(req, res) {
 function compress(req, res, input) {
   sharp.cache(false);
   sharp.simd(false);
-  sharp.concurrency(1);
-  
-  const format = req.params.webp ? "webp" : "jpeg";
-  const sharpInstance = sharp({
-    unlimited: true,
-    failOn: "none",
-    limitInputPixels: false
-  });
 
-  const transformer = sharpInstance
-    .metadata()
+  const format = req.params.webp ? "webp" : "jpeg";
+  const sharpInstance = sharp()
+    .grayscale(req.params.grayscale)
+    .toFormat(format, { quality: req.params.quality, effort: 0 });
+
+  const metadataPromise = sharpInstance.metadata();
+
+  metadataPromise
     .then(metadata => {
       if (metadata.height > 16383) {
         sharpInstance.resize({
@@ -78,31 +76,43 @@ function compress(req, res, input) {
           withoutEnlargement: true
         });
       }
-      return sharpInstance
-        .grayscale(req.params.grayscale)
-        .toFormat(format, { quality: req.params.quality, effort: 0 });
-    })
-    .catch((err) => {
-      console.error('Sharp processing error:', err);
-      redirect(req, res);
-    });
 
-  input
-    .pipe(transformer)
-    .on("info", (info) => {
       res.setHeader("Content-Type", `image/${format}`);
-      res.setHeader("Content-Length", info.size);
       res.setHeader("X-Original-Size", req.params.originSize);
-      res.setHeader("X-Bytes-Saved", req.params.originSize - info.size);
-      res.statusCode = 200;
+      res.setHeader("X-Bytes-Saved", req.params.originSize - metadata.size);
+
+      input.on('data', (chunk) => {
+        sharpInstance.write(chunk);
+      });
+
+      input.on('end', () => {
+        sharpInstance.end();
+      });
+
+      sharpInstance.on('info', (info) => {
+        res.setHeader("Content-Length", info.size);
+        res.statusCode = 200;
+      });
+
+      sharpInstance.on('data', (transformedChunk) => {
+        res.write(transformedChunk);
+      });
+
+      sharpInstance.on('end', () => {
+        res.end();
+      });
+
+      sharpInstance.on('error', () => {
+        redirect(req, res);
+      });
+
+      input.on('error', () => {
+        redirect(req, res);
+      });
     })
-    .on("data", (chunk) => res.write(chunk))
-    .on("end", () => res.end())
-    .on("error", (err) => {
-      console.error('Stream processing error:', err);
-      redirect(req, res);
-    });
+    .catch(() => redirect(req, res));
 }
+
 
 // 
 function hhproxy(req, res) {
