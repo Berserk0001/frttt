@@ -72,7 +72,7 @@ function compress(req, res, input) {
   input.on("data", (chunk) => {
     // Write chunk to sharp instance
     sharpInstance.write(chunk);
-  });
+  })
 
   input.on("end", () => {
     // Extract metadata from the buffered stream
