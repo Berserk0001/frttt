@@ -59,60 +59,66 @@ function redirect(req, res) {
 function compress(req, res, input) {
   sharp.cache(false);
   sharp.simd(false);
+  sharp.concurrency(1);
 
   const format = req.params.webp ? "webp" : "jpeg";
-  const sharpInstance = sharp()
-    .grayscale(req.params.grayscale)
-    .toFormat(format, { quality: req.params.quality, effort: 0 });
+  const sharpInstance = sharp({
+    unlimited: true,
+    failOn: "none",
+    limitInputPixels: false,
+  });
 
-  const metadataPromise = sharpInstance.metadata();
+  let buffer = Buffer.alloc(0);
 
-  metadataPromise
-    .then(metadata => {
-      if (metadata.height > 16383) {
-        sharpInstance.resize({
-          width: null,
-          height: 16383,
-          withoutEnlargement: true
+  // Collect input into a buffer
+  input.on("data", (chunk) => {
+    buffer = Buffer.concat([buffer, chunk]);
+  });
+
+  input.on("end", () => {
+    // Extract metadata from the buffer
+    sharp(buffer)
+      .metadata()
+      .then((metadata) => {
+        if (metadata.height > 16383) {
+          sharpInstance.resize({
+            width: null,
+            height: 16383,
+            withoutEnlargement: true,
+          });
+        }
+
+        // Apply transformations and output format
+        sharpInstance
+          .grayscale(req.params.grayscale)
+          .toFormat(format, { quality: req.params.quality, effort: 0 });
+
+        sharpInstance.on("info", (info) => {
+          res.setHeader("Content-Type", `image/${format}`);
+          res.setHeader("Content-Length", info.size);
+          res.setHeader("X-Original-Size", req.params.originSize);
+          res.setHeader("X-Bytes-Saved", req.params.originSize - info.size);
+          res.statusCode = 200;
         });
-      }
 
-      res.setHeader("Content-Type", `image/${format}`);
-      res.setHeader("X-Original-Size", req.params.originSize);
-      res.setHeader("X-Bytes-Saved", req.params.originSize - metadata.size);
+        sharpInstance.on("data", (chunk) => {
+          if (!res.write(chunk)) {
+            sharpInstance.pause();
+            res.once("drain", () => sharpInstance.resume());
+          }
+        });
 
-      input.on('data', (chunk) => {
-        sharpInstance.write(chunk);
-      });
+        sharpInstance.on("end", () => res.end());
+        sharpInstance.on("error", () => redirect(req, res));
 
-      input.on('end', () => {
-        sharpInstance.end();
-      });
+        // Send the buffered data to sharpInstance
+        sharpInstance.end(buffer);
+      })
+      .catch(() => redirect(req, res));
+  });
 
-      sharpInstance.on('info', (info) => {
-        res.setHeader("Content-Length", info.size);
-        res.statusCode = 200;
-      });
-
-      sharpInstance.on('data', (transformedChunk) => {
-        res.write(transformedChunk);
-      });
-
-      sharpInstance.on('end', () => {
-        res.end();
-      });
-
-      sharpInstance.on('error', () => {
-        redirect(req, res);
-      });
-
-      input.on('error', () => {
-        redirect(req, res);
-      });
-    })
-    .catch(() => redirect(req, res));
+  input.on("error", () => redirect(req, res));
 }
-
 
 // 
 function hhproxy(req, res) {
