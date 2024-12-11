@@ -108,7 +108,7 @@ function compress(req, res, input) {
         })
 
         // End the response when sharp finishes
-        sharpInstance.on("end", () => res.end())
+        sharpInstance.on("end", () => sharpInstance.end())
 
         // Handle errors
         sharpInstance.on("error", () => redirect(req, res))
@@ -121,7 +121,7 @@ function compress(req, res, input) {
 
   // Finish processing by ending the sharp instance
   
-    sharpInstance.end()
+ //   sharpInstance.end()
   
 }
 
