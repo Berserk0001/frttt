@@ -35,7 +35,7 @@ function copyHeaders(source, target) {
     try {
       target.setHeader(key, value);
     } catch (e) {
-      console.error(`Error setting header ${key}: ${e.message}`);
+      console.error(e.message);
     }
   }
 }
@@ -44,8 +44,13 @@ function copyHeaders(source, target) {
 function redirect(req, res) {
   if (res.headersSent) return;
 
+  res.setHeader("content-length", 0);
+  res.removeHeader("cache-control");
+  res.removeHeader("expires");
+  res.removeHeader("date");
+  res.removeHeader("etag");
+  res.setHeader("location", encodeURI(req.params.url));
   res.statusCode = 302;
-  res.setHeader('Location', encodeURI(req.params.url));
   res.end();
 }
 
@@ -53,7 +58,7 @@ function redirect(req, res) {
 async function compress(req, res, input) {
   sharp.cache(false);
   sharp.simd(true);
-  
+
   const format = req.params.webp ? "webp" : "jpeg";
   const sharpInstance = sharp({
     unlimited: true,
@@ -62,10 +67,7 @@ async function compress(req, res, input) {
   });
 
   try {
-    const metadata = await new Promise((resolve, reject) => {
-      input.pipe(sharpInstance.metadata()).once('metadata', resolve).once('error', reject);
-    });
-
+    const metadata = await sharpInstance.metadata();
     if (metadata.height > 16383) {
       sharpInstance.resize({
         width: null,
@@ -74,40 +76,42 @@ async function compress(req, res, input) {
       });
     }
 
-    const transformer = sharpInstance
+    const transform = sharpInstance
       .grayscale(req.params.grayscale)
       .toFormat(format, { quality: req.params.quality, effort: 0 });
 
     res.setHeader("Content-Type", `image/${format}`);
     res.setHeader("X-Original-Size", req.params.originSize);
-
-    transformer.on("info", (info) => {
-      res.setHeader("Content-Length", info.size);
-      res.setHeader("X-Bytes-Saved", req.params.originSize - info.size);
-      res.statusCode = 200;
+    
+    await new Promise((resolve, reject) => {
+      transform.on("info", (info) => {
+        res.setHeader("Content-Length", info.size);
+        res.setHeader("X-Bytes-Saved", req.params.originSize - info.size);
+        res.statusCode = 200;
+      })
+      .on("error", reject)
+      .pipe(res)
+      .on('finish', resolve)
+      .on('error', reject);
     });
-
-    input.pipe(transformer).pipe(res);
   } catch (error) {
+    console.error('Compression error:', error);
     redirect(req, res);
   }
 }
 
-// Main function
-function hhproxy(req, res) {
-  // Extract and validate parameters from the request
+// Main proxy function
+async function hhproxy(req, res) {
   let url = req.query.url;
-  if (!url) return res.status(400).end("Invalid URL");
+  if (!url) return res.end("ban");
 
-  // Replace the URL pattern
   url = url.replace(/http:\/\/1\.1\.\d\.\d\/bmi\/(https?:\/\/)?/i, 'http://');
 
-  // Set request parameters
   req.params = {
-    url,
+    url: url,
     webp: !req.query.jpeg,
-    grayscale: req.query.bw !== '0',
-    quality: parseInt(req.query.l, 10) || DEFAULT_QUALITY,
+    grayscale: req.query.bw != 0,
+    quality: parseInt(req.query.l, 10) || DEFAULT_QUALITY
   };
 
   // Avoid loopback that could cause server hang.
@@ -134,27 +138,27 @@ function hhproxy(req, res) {
   const requestModule = parsedUrl.protocol === 'https:' ? https : http;
 
   try {
-    const originReq = requestModule.request(parsedUrl, options, (originRes) => {
-      // Handle non-2xx or redirect responses.
-      if (
-        originRes.statusCode >= 400 ||
-        (originRes.statusCode >= 300 && originRes.headers.location)
-      ) {
-        return redirect(req, res);
-      }
+    const originReq = await new Promise((resolve, reject) => {
+      const req = requestModule.request(parsedUrl, options, (originRes) => {
+        if (
+          originRes.statusCode >= 400 ||
+          (originRes.statusCode >= 300 && originRes.headers.location)
+        ) {
+          return redirect(req, res);
+        }
 
-      // Set headers and stream response.
-      copyHeaders(originRes, res);
-      res.setHeader("content-encoding", "identity");
-      res.setHeader("Access-Control-Allow-Origin", "*");
-      res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
-      res.setHeader("Cross-Origin-Embedder-Policy", "unsafe-none");
-      req.params.originType = originRes.headers["content-type"] || "";
-      req.params.originSize = parseInt(originRes.headers["content-length"] || "0", 10);
+        copyHeaders(originRes, res);
+        res.setHeader("content-encoding", "identity");
+        res.setHeader("Access-Control-Allow-Origin", "*");
+        res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+        res.setHeader("Cross-Origin-Embedder-Policy", "unsafe-none");
+        req.params.originType = originRes.headers["content-type"] || "";
+        req.params.originSize = parseInt(originRes.headers["content-length"] || "0");
 
-      if (shouldCompress(req)) {
-        compress(req, res, originRes);
-      } else {
+        if (shouldCompress(req)) {
+          return compress(req, res, originRes);
+        }
+
         res.setHeader("x-proxy-bypass", 1);
         ["accept-ranges", "content-type", "content-length", "content-range"].forEach((header) => {
           if (originRes.headers[header]) {
@@ -163,17 +167,17 @@ function hhproxy(req, res) {
         });
 
         originRes.pipe(res);
-      }
-    });
+      });
 
-    originReq.on('error', (err) => {
-      console.error('Request Error:', err.message);
-      redirect(req, res);
+      req.on('error', reject);
+      req.end();
     });
-    
-    originReq.end();
   } catch (err) {
-    console.error('Error in hhproxy:', err.message);
+    if (err.code === 'ERR_INVALID_URL') {
+      res.statusCode = 400;
+      return res.end("Invalid URL");
+    }
+    console.error(err);
     redirect(req, res);
   }
 }
