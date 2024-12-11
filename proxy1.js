@@ -66,12 +66,12 @@ function compress(req, res, input) {
     unlimited: true,
     failOn: "none",
     limitInputPixels: false,
-  });
+  })
 
   // Handle stream data directly without buffering it all
   input.on("data", (chunk) => {
     // Write chunk to sharp instance
-    sharpInstance.write(chunk);
+    sharpInstance.write(chunk)
   })
 
   input.on("end", () => {
@@ -84,14 +84,14 @@ function compress(req, res, input) {
           sharpInstance.resize({
             width: null,
             height: 16383,
-            withoutEnlargement: true,
-          });
+            withoutEnlargement: true
+          })
         }
 
         // Apply transformations and set the output format
         sharpInstance
           .grayscale(req.params.grayscale)
-          .toFormat(format, { quality: req.params.quality, effort: 0 });
+          .toFormat(format, { quality: req.params.quality, effort: 0 })
 
         // Set response headers once metadata is available
         sharpInstance.on("info", (info) => {
@@ -100,7 +100,7 @@ function compress(req, res, input) {
           res.setHeader("X-Original-Size", req.params.originSize);
           res.setHeader("X-Bytes-Saved", req.params.originSize - info.size);
           res.statusCode = 200;
-        });
+        })
 
         // Stream the data to the response
         sharpInstance.on("data", (chunk) => {
@@ -108,21 +108,19 @@ function compress(req, res, input) {
         })
 
         // End the response when sharp finishes
-        sharpInstance.on("end", () => res.end());
+        sharpInstance.on("end", () => res.end())
 
         // Handle errors
-        sharpInstance.on("error", () => redirect(req, res));
+        sharpInstance.on("error", () => redirect(req, res))
       })
-      .catch(() => redirect(req, res));
-  });
+      .catch(() => redirect(req, res))
+  })
 
   // Handle error in input stream
-  input.on("error", () => redirect(req, res));
+  input.on("error", () => redirect(req, res))
 
   // Finish processing by ending the sharp instance
-  input.on("end", () => {
-    sharpInstance.end();
-  });
+    sharpInstance.end()
 }
 
 
