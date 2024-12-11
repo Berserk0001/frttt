@@ -58,8 +58,8 @@ function redirect(req, res) {
 // Helper: Compress
 function compress(req, res, input) {
   sharp.cache(false);
-  sharp.simd(false);
-  sharp.concurrency(1);
+  sharp.simd(true);
+ // sharp.concurrency(1);
   
   const format = req.params.webp ? "webp" : "jpeg";
   const sharpInstance = sharp({
