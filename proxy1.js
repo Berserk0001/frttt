@@ -57,7 +57,6 @@ function redirect(req, res) {
 
 // Helper: Compress
 function compress(req, res, input) {
-function compress(req, res, input) {
   sharp.cache(false);
   sharp.simd(false);
   sharp.concurrency(1);
