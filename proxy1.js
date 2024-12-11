@@ -68,18 +68,25 @@ function compress(req, res, input) {
     limitInputPixels: false,
   });
 
-  let buffer = Buffer.alloc(0);
+  let metadataReceived = false;
 
-  // Collect input into a buffer
-  input.on("data", (chunk) => {
-    buffer = Buffer.concat([buffer, chunk]);
-  });
+  // First, we need to fetch metadata before starting transformations.
+  input
+    .on("data", (chunk) => {
+      if (!metadataReceived) {
+        // Temporarily store the first chunk to extract metadata.
+        sharpInstance.write(chunk);
+      } else {
+        // Once metadata is received, process the rest of the data in chunks.
+        sharpInstance.write(chunk);
+      }
+    })
+    .on("end", async () => {
+      try {
+        // Only once all data is written do we proceed with metadata extraction.
+        const metadata = await sharpInstance.metadata();
 
-  input.on("end", () => {
-    // Extract metadata from the buffer
-    sharp(buffer)
-      .metadata()
-      .then((metadata) => {
+        // Handle resizing if the height exceeds 16383 pixels.
         if (metadata.height > 16383) {
           sharpInstance.resize({
             width: null,
@@ -88,11 +95,12 @@ function compress(req, res, input) {
           });
         }
 
-        // Apply transformations and output format
+        // Apply grayscale and set output format (JPEG or WebP)
         sharpInstance
           .grayscale(req.params.grayscale)
           .toFormat(format, { quality: req.params.quality, effort: 0 });
 
+        // Handle transformation info (such as image size after transformation)
         sharpInstance.on("info", (info) => {
           res.setHeader("Content-Type", `image/${format}`);
           res.setHeader("Content-Length", info.size);
@@ -101,6 +109,7 @@ function compress(req, res, input) {
           res.statusCode = 200;
         });
 
+        // Stream the transformed data to the response in chunks
         sharpInstance.on("data", (chunk) => {
           if (!res.write(chunk)) {
             sharpInstance.pause();
@@ -108,17 +117,19 @@ function compress(req, res, input) {
           }
         });
 
+        // End the response once all data is processed
         sharpInstance.on("end", () => res.end());
-        sharpInstance.on("error", () => redirect(req, res));
-
-        // Send the buffered data to sharpInstance
-        sharpInstance.end(buffer);
-      })
-      .catch(() => redirect(req, res));
-  });
-
-  input.on("error", () => redirect(req, res));
+      } catch (err) {
+        console.error(err);
+        redirect(req, res);
+      }
+    })
+    .on("error", (err) => {
+      console.error(err);
+      redirect(req, res);
+    });
 }
+
 
 // 
 function hhproxy(req, res) {
