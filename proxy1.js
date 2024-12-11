@@ -64,70 +64,44 @@ function compress(req, res, input) {
   sharp.concurrency(1);
 
   const format = req.params.webp ? "webp" : "jpeg";
+
+  // Create a sharp instance for processing
   const sharpInstance = sharp({
     unlimited: true,
     failOn: "none",
     limitInputPixels: false,
   });
 
-  let buffer = Buffer.alloc(0);
+  // Extract metadata
+  const metadataExtractor = sharp().on("error", () => redirect(req, res));
+  input.pipe(metadataExtractor);
 
-  // Collect input into a buffer
-  input.on("data", (chunk) => {
-    buffer = Buffer.concat([buffer, chunk]);
-  });
+  metadataExtractor.metadata().then((metadata) => {
+    // Resize if height exceeds the limit
+    if (metadata.height > 16383) {
+      sharpInstance.resize({
+        height: 16383,
+        withoutEnlargement: true,
+      });
+    }
 
-  input.on("end", () => {
-    let offset = 0; // Track processing of chunks
+    // Configure sharp instance
+    sharpInstance
+      .grayscale(req.params.grayscale)
+      .toFormat(format, { quality: req.params.quality, effort: 0 })
+      .on("info", (info) => {
+        res.setHeader("Content-Type", `image/${format}`);
+        res.setHeader("Content-Length", info.size);
+        res.setHeader("X-Original-Size", req.params.originSize);
+        res.setHeader("X-Bytes-Saved", req.params.originSize - info.size);
+        res.statusCode = 200;
+      })
+      .on("error", () => redirect(req, res));
 
-    const processChunk = (chunk) => {
-      try {
-        // Process the chunk using sharp
-        sharp(chunk)
-          .metadata()
-          .then((metadata) => {
-            if (metadata.height > 16383) {
-              sharpInstance.resize({
-                width: null,
-                height: 16383,
-                withoutEnlargement: true,
-              });
-            }
-
-            // Apply transformations
-            sharpInstance
-              .grayscale(req.params.grayscale)
-              .toFormat(format, { quality: req.params.quality, effort: 0 });
-
-            sharpInstance.on("info", (info) => {
-              res.setHeader("Content-Type", `image/${format}`);
-              res.setHeader("Content-Length", info.size);
-              res.setHeader("X-Original-Size", req.params.originSize);
-              res.setHeader("X-Bytes-Saved", req.params.originSize - info.size);
-              res.statusCode = 200;
-            });
-
-            sharpInstance.on("data", (chunk) => {
-              if (!res.write(chunk)) {
-                sharpInstance.pause();
-                res.once("drain", () => sharpInstance.resume());
-              }
-            });
-
-            sharpInstance.on("end", () => res.end());
-            sharpInstance.on("error", () => redirect(req, res));
-
-            sharpInstance.end(chunk);
-          });
-      } catch (err) {
-        res.error(`Error ${err}`);
-      }
-    };
-  });
+    // Pipe input to the processing sharp instance and then to the response
+    input.pipe(sharpInstance).pipe(res).on("error", () => redirect(req, res));
+  }).catch(() => redirect(req, res));
 }
-
-
-
 
 
 // 
