@@ -57,6 +57,7 @@ function redirect(req, res) {
 
 // Helper: Compress
 function compress(req, res, input) {
+function compress(req, res, input) {
   sharp.cache(false);
   sharp.simd(false);
   sharp.concurrency(1);
@@ -84,7 +85,7 @@ function compress(req, res, input) {
           sharpInstance.resize({
             width: null,
             height: 16383,
-            withoutEnlargement: true
+            withoutEnlargement: true,
           })
         }
 
@@ -120,8 +121,11 @@ function compress(req, res, input) {
   input.on("error", () => redirect(req, res))
 
   // Finish processing by ending the sharp instance
+  input.on("end", () => {
     sharpInstance.end()
+  })
 }
+
 
 
 // 
