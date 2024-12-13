@@ -137,7 +137,7 @@ async function hhproxy(req, res) {
         "Cross-Origin-Embedder-Policy": "unsafe-none",
         "X-Proxy-Bypass": 1,
       });
-      res.end(response.body);
+    //  res.end(response.body);
     }
   } catch (err) {
     if (err.status === 404 || err.response?.headers?.location) {
