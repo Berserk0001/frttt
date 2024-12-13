@@ -72,7 +72,8 @@ function redirect(req, res) {
  * @param {stream.Readable} input - The input image stream.
  */
 
-const sharpStream = _ => sharp({ animated: !process.env.NO_ANIMATE, unlimited: true });
+//const sharpStream = _ => sharp({ animated: !process.env.NO_ANIMATE, unlimited: true });
+const sharpStream = _ => sharp({ animated: false, unlimited: true });
 
 function compress(req, res, input) {
   const format = req.params.webp ? 'webp' : 'jpeg';
@@ -97,7 +98,7 @@ function compress(req, res, input) {
       let transform = sharpStream();
 
       if (metadata.height > 16383) {
-        transform = transform.resize(null, 16383);
+        transform = transform.resize(null, 16383, { withoutEnlargement: true });
       }
 
       transform
@@ -123,6 +124,7 @@ function _sendResponse(err, output, info, format, req, res) {
   res.write(output);
   res.end();
 }
+
 
 
 
