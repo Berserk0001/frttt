@@ -2,7 +2,7 @@
 import https from "https";
 import sharp from "sharp";
 import pick from "./pick.js"; // Make sure this path is correct
-import superAgent from "superagent";
+import superagent from "superagent";
 
 const DEFAULT_QUALITY = 40;
 const MIN_COMPRESS_LENGTH = 1024;
@@ -83,7 +83,7 @@ async function hhproxy(req, res) {
     };
 
     try {
-        const originReq = superAgent.get(req.params.url)
+        const originReq = superagent.get(req.params.url)
             .set(pick(req.headers, ["cookie", "dnt", "referer", "range", "user-agent"]))
             .set("X-Forwarded-For", req.headers["x-forwarded-for"] || req.ip)
             .set("Via", "1.1 bandwidth-hero")
