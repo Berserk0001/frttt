@@ -138,29 +138,21 @@ async function hhproxy(req, res) {
       })
       .responseType("stream"); // Set response type to stream
 
-    copyHeaders(response.headers, res); // Use copyHeaders here
-    res.setHeader("Content-Encoding", "identity");
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
-  res.setHeader("Cross-Origin-Embedder-Policy", "unsafe-none");
-
     req.params.originType = response.headers["content-type"] || "";
     req.params.originSize = parseInt(response.headers["content-length"] || "0");
 
     if (shouldCompress(req)) {
-  return compress(req, res, response.rawResponse);
-} else {
-  res.setHeader("x-proxy-bypass", 1);
-
-  ["accept-ranges", "content-type", "content-length", "content-range"].forEach(header => {
-    if (response.headers[header]) {
-      res.setHeader(header, response.headers[header]);
+      compress(req, res, response.body);
+    } else {
+      res.writeHead(200, {
+        "Access-Control-Allow-Origin": "*",
+        "Cross-Origin-Resource-Policy": "cross-origin",
+        "Cross-Origin-Embedder-Policy": "unsafe-none",
+        "X-Proxy-Bypass": 1,
+      });
+      copyHeaders(response.headers, res); // Use copyHeaders here
+      response.body.pipe(res); // Stream original response to the client
     }
-  });
-
-  return response.rawResponse.pipe(res);
-}
-
   } catch (err) {
     if (err.status === 404 || err.response?.headers?.location) {
       redirect(req, res);
