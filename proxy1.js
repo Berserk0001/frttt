@@ -48,33 +48,31 @@ function redirect(req, res) {
 }
 
 // Helper: Compress
-function compress(req, res, inputStream) {
+async function compress(req, res, input) {
     const format = req.params.webp ? 'webp' : 'jpeg';
-    const transform = sharp()
-        .grayscale(req.params.grayscale)
-        .toFormat(format, {
-            quality: req.params.quality,
-            progressive: true,
-            optimizeScans: true
-        });
+    try {
+        const output = await sharp(input)
+            .grayscale(req.params.grayscale)
+            .toFormat(format, {
+                quality: req.params.quality,
+                progressive: true,
+                optimizeScans: true
+            })
+            .toBuffer({ resolveWithObject: true });
 
-    inputStream.pipe(transform);
-
-    transform
-        .on('error', (err) => {
-            console.error(`Compression error: ${err.message}`);
-            redirect(req, res);
-        })
-        .pipe(res);
-
-    transform.on('info', (info) => {
         res.setHeader('content-type', `image/${format}`);
-        res.setHeader('content-length', info.size);
+        res.setHeader('content-length', output.info.size);
         res.setHeader('x-original-size', req.params.originSize);
-        res.setHeader('x-bytes-saved', req.params.originSize - info.size);
+        res.setHeader('x-bytes-saved', req.params.originSize - output.info.size);
         res.status(200);
-    });
+        res.write(output.data);
+        res.end();
+    } catch (err) {
+        console.error(`Compression error: ${err.message}`);
+        redirect(req, res);
+    }
 }
+
 
 
 
