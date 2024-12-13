@@ -127,13 +127,13 @@ function _onRequestResponse(originRes, req, res) {
 
   originRes.on("error", () => req.socket.destroy());
 
-  if (shouldCompress(req)) return compress(req, res, originRes);
+  if (shouldCompress(req)) return compress(req, res, originRes.body);
   else {
     res.setHeader("X-Proxy-Bypass", 1);
     ["accept-ranges", "content-type", "content-length", "content-range"].forEach(header => {
       if (originRes.headers[header]) res.setHeader(header, originRes.headers[header]);
     });
-    return originRes.pipe(res);
+    return originRes.body.pipe(res);
   }
 }
 
