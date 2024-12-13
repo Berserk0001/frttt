@@ -45,14 +45,14 @@ function redirect(req, res) {
 }
 
 /**
- * Compresses and transforms the image using streams.
+ * Compresses and transforms the image according to request parameters.
  * @param {http.IncomingMessage} req - The incoming HTTP request.
  * @param {http.ServerResponse} res - The HTTP response.
- * @param {ReadableStream} input - The input stream for image data.
+ * @param {Buffer} input - The input image data.
  */
 function compress(req, res, input) {
   const format = req.params.webp ? "webp" : "jpeg";
-  const sharpInstance = sharp({
+  const sharpInstance = sharp(input, {
     unlimited: true,
     failOn: "none",
     limitInputPixels: false,
@@ -72,23 +72,21 @@ function compress(req, res, input) {
           withoutEnlargement: true,
         });
       }
-      sharpInstance
+      return sharpInstance
         .grayscale(req.params.grayscale)
         .toFormat(format, { quality: req.params.quality, effort: 0 })
-        .on("info", (info) => {
-          res.writeHead(200, {
-            "content-type": `image/${format}`,
-            "content-length": info.size,
-            "x-original-size": req.params.originSize,
-            "x-bytes-saved": req.params.originSize - info.size,
-          });
-        })
-        .on("error", () => redirect(req, res))
-        .pipe(res);
+        .toBuffer();
+    })
+    .then((outputBuffer) => {
+      res.writeHead(200, {
+        "content-type": `image/${format}`,
+        "content-length": outputBuffer.length,
+        "x-original-size": req.params.originSize,
+        "x-bytes-saved": req.params.originSize - outputBuffer.length,
+      });
+      res.end(outputBuffer);
     })
     .catch(() => redirect(req, res));
-
-  input.pipe(sharpInstance);
 }
 
 /**
@@ -115,7 +113,7 @@ async function hhproxy(req, res) {
   }
 
   try {
-    const responseStream = superagent
+    const response = await superagent
       .get(req.params.url)
       .set({
         ...pick(req.headers, ["cookie", "dnt", "referer", "range"]),
@@ -123,26 +121,24 @@ async function hhproxy(req, res) {
         "X-Forwarded-For": req.headers["x-forwarded-for"] || req.ip,
         "Via": "1.1 bandwidth-hero",
       })
-      .on("response", (originRes) => {
-        req.params.originType = originRes.headers["content-type"] || "";
-        req.params.originSize = parseInt(originRes.headers["content-length"] || "0");
+      .buffer(true)
+      .parse(superagent.parse.image);
 
-        if (originRes.statusCode >= 400 || (originRes.statusCode >= 300 && originRes.headers.location)) {
-          return redirect(req, res);
-        }
+    req.params.originType = response.type;
+    req.params.originSize = response.body.length;
 
-        res.setHeader("Access-Control-Allow-Origin", "*");
-        res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
-        res.setHeader("Cross-Origin-Embedder-Policy", "unsafe-none");
-
-        if (shouldCompress(req)) {
-          compress(req, res, responseStream);
-        } else {
-          res.setHeader("X-Proxy-Bypass", 1);
-          originRes.pipe(res);
-        }
-      })
-      .on("error", () => redirect(req, res));
+    if (shouldCompress(req)) {
+      compress(req, res, response.body);
+    } else {
+      res.writeHead(response.status, {
+        ...response.headers,
+        "Access-Control-Allow-Origin": "*",
+        "Cross-Origin-Resource-Policy": "cross-origin",
+        "Cross-Origin-Embedder-Policy": "unsafe-none",
+        "X-Proxy-Bypass": 1,
+      });
+      res.end(response.body);
+    }
   } catch (err) {
     if (err.status === 404 || err.response?.headers?.location) {
       redirect(req, res);
