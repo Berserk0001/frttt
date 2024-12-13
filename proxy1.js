@@ -138,6 +138,13 @@ async function hhproxy(req, res) {
       })
       .responseType("stream"); // Set response type to stream
 
+    copyHeaders(originRes, res);
+
+  res.setHeader("Content-Encoding", "identity");
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+  res.setHeader("Cross-Origin-Embedder-Policy", "unsafe-none");
+
     req.params.originType = response.headers["content-type"] || "";
     req.params.originSize = parseInt(response.headers["content-length"] || "0");
 
@@ -150,7 +157,7 @@ async function hhproxy(req, res) {
         "Cross-Origin-Embedder-Policy": "unsafe-none",
         "X-Proxy-Bypass": 1,
       });
-      copyHeaders(response.headers, res); // Use copyHeaders here
+     // copyHeaders(response.headers, res); // Use copyHeaders here
       response.body.pipe(res); // Stream original response to the client
     }
   } catch (err) {
