@@ -1,5 +1,5 @@
 "use strict";
-
+import UserAgent from 'user-agents';
 import sharp from "sharp";
 import pick from "./pick.js";
 import superagent from "superagent";
@@ -134,64 +134,84 @@ function _sendResponse(err, output, info, format, req, res) {
  * @param {http.ServerResponse} res - The HTTP response.
  */
 async function hhproxy(req, res) {
-  let url = req.query.url;
-  if (!url) return res.end("bandwidth-hero-proxy");
+  const url = req.query.url;
+  if (!url) {
+    return res.end("bandwidth-hero-proxy");
+  }
+
 
   req.params = {
     url: decodeURIComponent(url),
     webp: !req.query.jpeg,
     grayscale: req.query.bw != 0,
-    quality: parseInt(req.query.l, 10) || DEFAULT_QUALITY,
+    quality: parseInt(req.query.l, 10) || DEFAULT_QUALITY
+  };
+const userAgent = new UserAgent();
+  const options = {
+    headers: {
+      ...pick(req.headers, ["cookie", "dnt", "referer", "range"]),
+      "User-Agent": userAgent.toString(),
+      "X-Forwarded-For": req.headers["x-forwarded-for"] || req.ip,
+      Via: "1.1 bandwidth-hero"
+    },
   };
 
-  if (
-    req.headers["via"] === "1.1 bandwidth-hero" &&
-    ["127.0.0.1", "::1"].includes(req.headers["x-forwarded-for"] || req.ip)
-  ) {
+ // const requestModule = parsedUrl.protocol === 'https:' ? https : http;
+
+  try {
+    let originReq = await superagent.get(req.params.url, options, (originRes) => {
+      _onRequestResponse(originRes, req, res);
+    });
+
+  } catch (err) {
+    _onRequestError(req, res, err);
+  }
+}
+
+function _onRequestError(req, res, err) {
+  if (err.code === "ERR_INVALID_URL") {
+    res.statusCode = 400;
+    return res.end("Invalid URL");
+  }
+
+  redirect(req, res);
+  console.error(err);
+}
+
+function _onRequestResponse(originRes, req, res) {
+  if (originRes.statusCode >= 400) {
     return redirect(req, res);
   }
 
-  try {
-    const response = await superagent.get(req.params.url, {
-      headers: {
-        ...pick(req.headers, ["cookie", "dnt", "referer", "range"]),
-        "user-agent": USER_AGENT,
-        "x-forwarded-for": req.headers["x-forwarded-for"] || req.ip,
-        via: "1.1 bandwidth-hero",
-      },
-      maxRedirections: 4,
-    });
+  if (originRes.statusCode >= 300 && originRes.headers.location) {
+    req.params.url = originRes.headers.location;
+    return redirect(req, res); // Follow the redirect manually
+  }
 
-    copyHeaders(response, res);
+  copyHeaders(originRes, res);
 
   res.setHeader("Content-Encoding", "identity");
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
   res.setHeader("Cross-Origin-Embedder-Policy", "unsafe-none");
 
-    req.params.originType = response.headers["content-type"] || "";
-    req.params.originSize = parseInt(response.headers["content-length"] || "0");
+  req.params.originType = originRes.headers["content-type"] || "";
+  req.params.originSize = parseInt(originRes.headers["content-length"] || "0", 10);
+ 
+  originRes.on('error', _ => req.socket.destroy());
 
-    if (shouldCompress(req)) {
-      compress(req, res, response.body);
-    } else {
+  if (shouldCompress(req)) {
+    return compress(req, res, originRes);
+  } else {
     res.setHeader("X-Proxy-Bypass", 1);
 
     ["accept-ranges", "content-type", "content-length", "content-range"].forEach(header => {
-      if (response.headers[header]) {
-        res.setHeader(header, response.headers[header]);
+      if (originRes.headers[header]) {
+        res.setHeader(header, originRes.headers[header]);
       }
     });
 
-   return response.body.pipe(res);
-  }
-  } catch (err) {
-    if (err.status === 404 || err.response?.headers?.location) {
-      redirect(req, res);
-    } else {
-      res.status(400).send("Invalid URL");
-      console.error(err);
-    }
+   return originRes.pipe(res);
   }
 }
 
