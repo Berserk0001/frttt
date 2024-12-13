@@ -1,4 +1,5 @@
 "use strict";
+
 import request from 'superagent';
 import sharp from "sharp";
 import pick from "./pick.js";
@@ -27,7 +28,7 @@ function copyHeaders(source, target) {
     try {
       target.setHeader(key, value);
     } catch (e) {
-      console.log(e.message);
+      console.error(`Error setting header ${key}: ${e.message}`);
     }
   }
 }
@@ -47,26 +48,31 @@ function redirect(req, res) {
 }
 
 // Helper: Compress
-function compress(req, res, input) {
-    const format = req.params.webp ? 'webp' : 'jpeg';
-    sharp(input)
-        .grayscale(req.params.grayscale)
-        .toFormat(format, {
-            quality: req.params.quality,
-            progressive: true,
-            optimizeScans: true
-        })
-        .toBuffer((err, output, info) => {
-            if (err || !info || res.headersSent) return redirect(req, res);
-            res.setHeader('content-type', `image/${format}`);
-            res.setHeader('content-length', info.size);
-            res.setHeader('x-original-size', req.params.originSize);
-            res.setHeader('x-bytes-saved', req.params.originSize - info.size);
-            res.status(200);
-            res.write(output);
-            res.end()
-        })
+async function compress(req, res, input) {
+  const format = req.params.webp ? 'webp' : 'jpeg';
+  try {
+    const output = await sharp(input)
+      .grayscale(req.params.grayscale)
+      .toFormat(format, {
+        quality: req.params.quality,
+        progressive: true,
+        optimizeScans: true
+      })
+      .toBuffer({ resolveWithObject: true });
+
+    res.setHeader('content-type', `image/${format}`);
+    res.setHeader('content-length', output.info.size);
+    res.setHeader('x-original-size', req.params.originSize);
+    res.setHeader('x-bytes-saved', req.params.originSize - output.info.size);
+    res.status(200);
+    res.write(output.data);
+    res.end();
+  } catch (err) {
+    console.error(`Compression error: ${err.message}`);
+    redirect(req, res);
+  }
 }
+
 // Main proxy handler for bandwidth optimization
 async function hhproxy(req, res) {
   const url = req.query.url;
@@ -104,8 +110,8 @@ function _onRequestError(req, res, err) {
     return res.end("Invalid URL");
   }
 
+  console.error(`Request error: ${err.message}`);
   redirect(req, res);
-  console.error(err);
 }
 
 function _onRequestResponse(originRes, req, res) {
@@ -126,8 +132,9 @@ function _onRequestResponse(originRes, req, res) {
 
   originRes.on("error", () => req.socket.destroy());
 
-  if (shouldCompress(req)) return compress(req, res, originRes.body);
-  else {
+  if (shouldCompress(req)) {
+    return compress(req, res, originRes.body);
+  } else {
     res.setHeader("X-Proxy-Bypass", 1);
     ["accept-ranges", "content-type", "content-length", "content-range"].forEach(header => {
       if (originRes.headers[header]) res.setHeader(header, originRes.headers[header]);
