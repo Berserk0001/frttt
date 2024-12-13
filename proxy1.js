@@ -91,7 +91,7 @@ async function hhproxy(req, res) {
         Via: "1.1 bandwidth-hero",
       })
       .redirects(4)
-      .buffer(true);
+      .buffer(false);
 
     _onRequestResponse(originRes, req, res);
   } catch (err) {
