@@ -108,6 +108,15 @@ async function hhproxy(req, res) {
         _onRequestError(req, res, err);
     }
 }
+function _onRequestError(req, res, err) {
+  if (err.code === "ERR_INVALID_URL") {
+    res.statusCode = 400;
+    return res.end("Invalid URL");
+  }
+
+  console.error(`Request error: ${err.message}`);
+  redirect(req, res);
+}
 
 function _onRequestResponse(originRes, req, res) {
     if (originRes.statusCode >= 400) return redirect(req, res);
