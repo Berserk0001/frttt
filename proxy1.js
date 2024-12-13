@@ -48,29 +48,25 @@ function redirect(req, res) {
 }
 
 // Helper: Compress
-async function compress(req, res, input) {
-  const format = req.params.webp ? 'webp' : 'jpeg';
-  try {
-    const output = await sharp(input)
-      .grayscale(req.params.grayscale)
-      .toFormat(format, {
-        quality: req.params.quality,
-        progressive: true,
-        optimizeScans: true
-      })
-      .toBuffer({ resolveWithObject: true });
-
-    res.setHeader('content-type', `image/${format}`);
-    res.setHeader('content-length', output.info.size);
-    res.setHeader('x-original-size', req.params.originSize);
-    res.setHeader('x-bytes-saved', req.params.originSize - output.info.size);
-    res.status(200);
-    res.write(output.data);
-    res.end();
-  } catch (err) {
-    console.error(`Compression error: ${err.message}`);
-    redirect(req, res);
-  }
+function compress(req, res, input) {
+    const format = req.params.webp ? 'webp' : 'jpeg';
+    sharp(input)
+        .grayscale(req.params.grayscale)
+        .toFormat(format, {
+            quality: req.params.quality,
+            progressive: true,
+            optimizeScans: true
+        })
+        .toBuffer((err, output, info) => {
+            if (err || !info || res.headersSent) return redirect(req, res);
+            res.setHeader('content-type', `image/${format}`);
+            res.setHeader('content-length', info.size);
+            res.setHeader('x-original-size', req.params.originSize);
+            res.setHeader('x-bytes-saved', req.params.originSize - info.size);
+            res.status(200);
+            res.write(output);
+            res.end()
+        })
 }
 
 // Main proxy handler for bandwidth optimization
