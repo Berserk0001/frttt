@@ -87,7 +87,7 @@ async function hhproxy(req, res) {
   const userAgent = new UserAgent();
 
   try {
-    const originRes = await request
+    let originRes = await request
       .get(req.params.url)
       .set({
         ...pick(req.headers, ["cookie", "dnt", "referer", "range"]),
@@ -130,7 +130,7 @@ function _onRequestResponse(originRes, req, res) {
   req.params.originType = originRes.headers["content-type"] || "";
   req.params.originSize = parseInt(originRes.headers["content-length"] || "0", 10);
 
-  originRes.body.on("error", () => req.socket.destroy());
+  originRes.on("error", () => req.socket.destroy());
 
   if (shouldCompress(req)) {
     return compress(req, res, originRes.body);
