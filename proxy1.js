@@ -47,52 +47,25 @@ function redirect(req, res) {
 }
 
 // Helper: Compress
-const sharpStream = () => sharp({ animated: false, unlimited: true });
 function compress(req, res, input) {
-  const format = req.params.webp ? "webp" : "jpeg";
-  const sharpInstance = sharpStream();
-
-  input.on("error", () => redirect(req, res));
-  input.on("data", (chunk) => sharpInstance.write(chunk));
-  input.on("end", () => {
-    sharpInstance.end();
-    sharpInstance
-      .metadata()
-      .then((metadata) => {
-        if (metadata.height > 16383) {
-          sharpInstance.resize({ height: 16383, withoutEnlargement: true });
-        }
-
-        sharpInstance.grayscale(req.params.grayscale).toFormat(format, { quality: req.params.quality, effort: 0 });
-        setupResponseHeaders(sharpInstance, res, format, req.params.originSize);
-        streamToResponse(sharpInstance, res);
-      })
-      .catch(() => redirect(req, res));
-  });
-}
-
-// Helper to set up response headers
-function setupResponseHeaders(sharpInstance, res, format, originSize) {
-  sharpInstance.on("info", (info) => {
-    res.setHeader("Content-Type", `image/${format}`);
-    res.setHeader("Content-Length", info.size);
-    res.setHeader("X-Original-Size", originSize);
-    res.setHeader("X-Bytes-Saved", originSize - info.size);
-    res.statusCode = 200;
-  });
-}
-
-// Helper to handle streaming data to the response
-function streamToResponse(sharpInstance, res) {
-  sharpInstance.on("data", (chunk) => {
-    if (!res.write(chunk)) {
-      sharpInstance.pause();
-      res.once("drain", () => sharpInstance.resume());
-    }
-  });
-
-  sharpInstance.on("end", () => res.end());
-  sharpInstance.on("error", () => redirect(req, res));
+    const format = req.params.webp ? 'webp' : 'jpeg';
+    sharp(input)
+        .grayscale(req.params.grayscale)
+        .toFormat(format, {
+            quality: req.params.quality,
+            progressive: true,
+            optimizeScans: true
+        })
+        .toBuffer((err, output, info) => {
+            if (err || !info || res.headersSent) return redirect(req, res);
+            res.setHeader('content-type', `image/${format}`);
+            res.setHeader('content-length', info.size);
+            res.setHeader('x-original-size', req.params.originSize);
+            res.setHeader('x-bytes-saved', req.params.originSize - info.size);
+            res.status(200);
+            res.write(output);
+            res.end()
+        })
 }
 
 // Main proxy handler for bandwidth optimization
