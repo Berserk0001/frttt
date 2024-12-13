@@ -148,8 +148,9 @@ async function hhproxy(req, res) {
         "X-Forwarded-For": req.headers["x-forwarded-for"] || req.ip,
         "Via": "1.1 bandwidth-hero",
       })
+    .responseType("stream");
      // .buffer(true)
-      .parse(superagent.parse.image);
+    //  .parse(superagent.parse.image);
 
     req.params.originType = response.type;
     req.params.originSize = response.body.length;
