@@ -183,7 +183,7 @@ async function hhproxy(req, res) {
     req.params.originSize = parseInt(response.headers["content-length"] || "0");
 
     if (shouldCompress(req)) {
-      compress(req, res, response.body);
+      compress(req, res, response);
     } else {
     res.setHeader("X-Proxy-Bypass", 1);
 
