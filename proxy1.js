@@ -13,6 +13,21 @@ const MAX_HEIGHT = 16383;
 const USER_AGENT = "Bandwidth-Hero Compressor";
 
 /**
+ * Copies headers from the source response to the target response, logging errors if any.
+ * @param {Object} sourceHeaders - The headers from the source response.
+ * @param {http.ServerResponse} target - The target response object.
+ */
+function copyHeaders(sourceHeaders, target) {
+  Object.entries(sourceHeaders).forEach(([key, value]) => {
+    try {
+      target.setHeader(key, value);
+    } catch (e) {
+      console.error(`Error setting header ${key}: ${e.message}`);
+    }
+  });
+}
+
+/**
  * Determines if image compression should be applied based on request parameters.
  * @param {http.IncomingMessage} req - The incoming HTTP request.
  * @returns {boolean} - Whether compression should be performed.
@@ -74,18 +89,17 @@ function compress(req, res, input) {
       }
       return sharpInstance
         .grayscale(req.params.grayscale)
-        .toFormat(format, { quality: req.params.quality, effort: 0 });
+        .toFormat(format, { quality: req.params.quality, effort: 0 })
+        .toBuffer();
     })
-    .then((outputStream) => {
-      // Set headers only once before sending the data
+    .then((outputBuffer) => {
       res.writeHead(200, {
-        "Content-Type": `image/${format}`,
-        "Content-Length": outputStream.length,  // Set content-length if needed, otherwise skip this header
-        "X-Original-Size": req.params.originSize,
-        "X-Bytes-Saved": req.params.originSize - outputStream.length,
+        "content-type": `image/${format}`,
+        "content-length": outputBuffer.length,
+        "x-original-size": req.params.originSize,
+        "x-bytes-saved": req.params.originSize - outputBuffer.length,
       });
-
-      outputStream.pipe(res); // Pipe the processed data directly to the response stream
+      res.end(outputBuffer);
     })
     .catch(() => redirect(req, res));
 }
@@ -124,25 +138,28 @@ async function hhproxy(req, res) {
       })
       .responseType("stream"); // Set response type to stream
 
+    copyHeaders(response.headers, res); // Use copyHeaders here
+    res.setHeader("Content-Encoding", "identity");
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+  res.setHeader("Cross-Origin-Embedder-Policy", "unsafe-none");
+
     req.params.originType = response.headers["content-type"] || "";
     req.params.originSize = parseInt(response.headers["content-length"] || "0");
 
     if (shouldCompress(req)) {
-      // Pass the stream from superagent directly to sharp
-      compress(req, res, response.body);
+     return compress(req, res, response.body);
     } else {
-      // Ensure headers are set before streaming
-      res.writeHead(200, {
-        ...response.headers,
-        "Access-Control-Allow-Origin": "*",
-        "Cross-Origin-Resource-Policy": "cross-origin",
-        "Cross-Origin-Embedder-Policy": "unsafe-none",
-        "X-Proxy-Bypass": 1,
-      });
+    res.setHeader("x-proxy-bypass", 1);
 
-      // Pipe the original response body directly to the client
-      response.body.pipe(res);
-    }
+    ["accept-ranges", "content-type", "content-length", "content-range"].forEach(header => {
+      if (response.headers[header]) {
+        res.setHeader(header, response.headers[header]);
+      }
+    });
+
+   return response.body.pipe(res);
+  }
   } catch (err) {
     if (err.status === 404 || err.response?.headers?.location) {
       redirect(req, res);
