@@ -148,18 +148,19 @@ async function hhproxy(req, res) {
     req.params.originSize = parseInt(response.headers["content-length"] || "0");
 
     if (shouldCompress(req)) {
-     return compress(req, res, response.body);
-    } else {
-    res.setHeader("x-proxy-bypass", 1);
+  return compress(req, res, response.rawResponse);
+} else {
+  res.setHeader("x-proxy-bypass", 1);
 
-    ["accept-ranges", "content-type", "content-length", "content-range"].forEach(header => {
-      if (response.headers[header]) {
-        res.setHeader(header, response.headers[header]);
-      }
-    });
+  ["accept-ranges", "content-type", "content-length", "content-range"].forEach(header => {
+    if (response.headers[header]) {
+      res.setHeader(header, response.headers[header]);
+    }
+  });
 
-   return response.body.pipe(res);
-  }
+  return response.rawResponse.pipe(res);
+}
+
   } catch (err) {
     if (err.status === 404 || err.response?.headers?.location) {
       redirect(req, res);
