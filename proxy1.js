@@ -72,42 +72,58 @@ function redirect(req, res) {
  * @param {stream.Readable} input - The input image stream.
  */
 
-function compress(req, res, input) {
-  sharp.cache(false);
-  sharp.simd(false);
-  sharp.concurrency(availableParallelism());
-  const format = req.params.webp ? "webp" : "jpeg";
-  const sharpInstance = sharp(input.body, {
-    failOn: "none",
-    limitInputPixels: false,
-  });
+const sharpStream = _ => sharp({ animated: !process.env.NO_ANIMATE, unlimited: true });
 
-  sharpInstance
-    .metadata()
-    .then((metadata) => {
-      if (metadata.height > MAX_HEIGHT) {
-        sharpInstance.resize({
-          width: null,
-          height: MAX_HEIGHT,
-          withoutEnlargement: true,
-        });
+function compress(req, res, input) {
+  const format = req.params.webp ? 'webp' : 'jpeg';
+
+  /*
+   * Determine the uncompressed image size when there's no content-length header. Only do metadata thing and do not change other things.
+   */
+
+  /*
+   * input.pipe => sharp (The compressor) => Send to httpResponse
+   * The following headers:
+   * |  Header Name  |            Description            |           Value            |
+   * |---------------|-----------------------------------|----------------------------|
+   * |x-original-size|Original photo size                |OriginSize                  |
+   * |x-bytes-saved  |Saved bandwidth from original photo|OriginSize - Compressed Size|
+   */
+
+  input.body.pipe(sharpStream()
+    .metadata((err, metadata) => {
+      if (err) return redirect(req, res);
+
+      let transform = sharpStream();
+
+      if (metadata.height > 16383) {
+        transform = transform.resize(null, 16383);
       }
-      return sharpInstance
+
+      transform
         .grayscale(req.params.grayscale)
-        .toFormat(format, { quality: req.params.quality, effort: 0 })
-        .toBuffer();
+        .toFormat(format, {
+          quality: req.params.quality,
+          progressive: true,
+          optimizeScans: true
+        })
+        .toBuffer((err, output, info) => _sendResponse(err, output, info, format, req, res));
     })
-    .then((outputBuffer) => {
-      res.writeHead(200, {
-        "content-type": `image/${format}`,
-        "content-length": outputBuffer.length,
-        "x-original-size": req.params.originSize,
-        "x-bytes-saved": req.params.originSize - outputBuffer.length,
-      });
-      res.end(outputBuffer);
-    })
-    .catch(() => redirect(req, res));
+  );
 }
+
+function _sendResponse(err, output, info, format, req, res) {
+  if (err || !info) return redirect(req, res);
+
+  res.setHeader('content-type', 'image/' + format);
+  res.setHeader('content-length', info.size);
+  res.setHeader('x-original-size', req.params.originSize);
+  res.setHeader('x-bytes-saved', req.params.originSize - info.size);
+  res.status(200);
+  res.write(output);
+  res.end();
+}
+
 
 
 /**
