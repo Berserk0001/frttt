@@ -121,7 +121,7 @@ async function hhproxy(req, res) {
         "X-Forwarded-For": req.headers["x-forwarded-for"] || req.ip,
         "Via": "1.1 bandwidth-hero",
       })
-      .buffer(true)
+     // .buffer(true)
       .parse(superagent.parse.image);
 
     req.params.originType = response.type;
@@ -137,7 +137,7 @@ async function hhproxy(req, res) {
         "Cross-Origin-Embedder-Policy": "unsafe-none",
         "X-Proxy-Bypass": 1,
       });
-    //  res.end(response.body);
+     res.end(response.body);
     }
   } catch (err) {
     if (err.status === 404 || err.response?.headers?.location) {
