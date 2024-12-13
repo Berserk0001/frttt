@@ -128,86 +128,60 @@ function _sendResponse(err, output, info, format, req, res) {
  * @param {http.IncomingMessage} req - The incoming HTTP request.
  * @param {http.ServerResponse} res - The HTTP response.
  */
-async function hhproxy(req, res) {
-  const url = req.query.url;
-  if (!url) {
-    return res.end("bandwidth-hero-proxy");
-  }
-
+function hhproxy(req, res) {
+  let url = req.query.url;
+  if (!url) return res.end("bandwidth-hero-proxy");
+  const userAgent = new UserAgent();
 
   req.params = {
     url: decodeURIComponent(url),
     webp: !req.query.jpeg,
     grayscale: req.query.bw != 0,
-    quality: parseInt(req.query.l, 10) || DEFAULT_QUALITY
-  };
-const userAgent = new UserAgent();
-  const options = {
-    headers: {
-      ...pick(req.headers, ["cookie", "dnt", "referer", "range"]),
-      "User-Agent": userAgent.toString(),
-      "X-Forwarded-For": req.headers["x-forwarded-for"] || req.ip,
-      Via: "1.1 bandwidth-hero"
-    },
+    quality: parseInt(req.query.l, 10) || DEFAULT_QUALITY,
   };
 
- // const requestModule = parsedUrl.protocol === 'https:' ? https : http;
-
-  try {
-    let originReq = await superagent.get(req.params.url, options, (originRes) => {
-      _onRequestResponse(originRes, req, res);
-    });
-
-  } catch (err) {
-    _onRequestError(req, res, err);
-  }
-}
-
-function _onRequestError(req, res, err) {
-  if (err.code === "ERR_INVALID_URL") {
-    res.statusCode = 400;
-    return res.end("Invalid URL");
-  }
-
-  redirect(req, res);
-  console.error(err);
-}
-
-function _onRequestResponse(originRes, req, res) {
-  if (originRes.statusCode >= 400) {
+  if (
+    req.headers["via"] === "1.1 bandwidth-hero" &&
+    ["127.0.0.1", "::1"].includes(req.headers["x-forwarded-for"] || req.ip)
+  ) {
     return redirect(req, res);
   }
 
-  if (originRes.statusCode >= 300 && originRes.headers.location) {
-    req.params.url = originRes.headers.location;
-    return redirect(req, res); // Follow the redirect manually
-  }
+  superagent
+    .get(req.params.url)
+    .set({
+      ...pick(req.headers, ["cookie", "dnt", "referer", "range"]),
+      "User-Agent": userAgent.toString(),
+      "X-Forwarded-For": req.headers["x-forwarded-for"] || req.ip,
+      "Via": "1.1 bandwidth-hero",
+    })
+    .responseType("stream") // Set response type to stream
+    .then((response) => {
+      req.params.originType = response.headers["content-type"] || "";
+      req.params.originSize = parseInt(response.headers["content-length"] || "0");
 
-  copyHeaders(originRes, res);
-
-  res.setHeader("Content-Encoding", "identity");
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
-  res.setHeader("Cross-Origin-Embedder-Policy", "unsafe-none");
-
-  req.params.originType = originRes.headers["content-type"] || "";
-  req.params.originSize = parseInt(originRes.headers["content-length"] || "0", 10);
- 
-  originRes.on('error', _ => req.socket.destroy());
-
-  if (shouldCompress(req)) {
-    return compress(req, res, originRes);
-  } else {
-    res.setHeader("X-Proxy-Bypass", 1);
-
-    ["accept-ranges", "content-type", "content-length", "content-range"].forEach(header => {
-      if (originRes.headers[header]) {
-        res.setHeader(header, originRes.headers[header]);
+      if (shouldCompress(req)) {
+        compress(req, res, response.body);
+      } else {
+        res.writeHead(200, {
+          "Access-Control-Allow-Origin": "*",
+          "Cross-Origin-Resource-Policy": "cross-origin",
+          "Cross-Origin-Embedder-Policy": "unsafe-none",
+          "X-Proxy-Bypass": 1,
+        });
+        copyHeaders(response, res); // Use copyHeaders here
+        response.body.pipe(res); // Stream original response to the client
+      }
+    })
+    .catch((err) => {
+      if (err.status === 404 || err.response?.headers?.location) {
+        redirect(req, res);
+      } else {
+        res.status(400).send("Invalid URL");
+        console.error(err);
       }
     });
-
-   return originRes.pipe(res);
-  }
 }
+
 
 export default hhproxy;
