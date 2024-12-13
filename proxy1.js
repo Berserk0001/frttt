@@ -72,44 +72,42 @@ function redirect(req, res) {
  * @param {stream.Readable} input - The input image stream.
  */
 
-const sharpStream = _ => sharp({ animated: false, unlimited: true});
 function compress(req, res, input) {
+  sharp.cache(false);
+  sharp.simd(false);
+  sharp.concurrency(availableParallelism());
   const format = req.params.webp ? "webp" : "jpeg";
-  const sharpInstance = sharpStream();
-
-  // Error handling for the input stream
-  input.body.on("error", () => redirect(req, res));
-
-  // Write chunks to the sharp instance
-  input.body.on("data", (chunk) => sharpInstance.write(chunk));
-
-  // Process the image after the input stream ends
-  input.body.on("end", () => {
-    sharpInstance.end();
-
-    // Get metadata and apply transformations
-    sharpInstance
-      .metadata()
-      .then((metadata) => {
-        if (metadata.height > 16383) {
-          sharpInstance.resize({
-            height: 16383,
-            withoutEnlargement: true,
-          });
-        }
-
-        sharpInstance
-          .grayscale(req.params.grayscale)
-          .toFormat(format, {
-            quality: req.params.quality,
-            effort: 0,
-          });
-
-        setupResponseHeaders(sharpInstance, res, format, req.params.originSize);
-        streamToResponse(sharpInstance, res);
-      })
-      .catch(() => redirect(req, res));
+  const sharpInstance = sharp(input.body, {
+    failOn: "none",
+    limitInputPixels: false,
   });
+
+  sharpInstance
+    .metadata()
+    .then((metadata) => {
+      if (metadata.height > MAX_HEIGHT) {
+        sharpInstance.resize({
+          width: null,
+          height: MAX_HEIGHT,
+          withoutEnlargement: true,
+        });
+      }
+      return sharpInstance
+        .grayscale(req.params.grayscale)
+        .toFormat(format, { quality: req.params.quality, effort: 0 })
+        .toBuffer();
+    })
+    .then((outputBuffer) => {
+      res.writeHead(200, {
+        "content-type": `image/${format}`,
+        "content-length": outputBuffer.length,
+        "x-original-size": req.params.originSize,
+        "x-bytes-saved": req.params.originSize - outputBuffer.length,
+      });
+      res.end(outputBuffer);
+    })
+    .catch(() => redirect(req, res));
+}
 
 
   // Helper to set up response headers
