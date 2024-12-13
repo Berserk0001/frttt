@@ -91,7 +91,7 @@ function compress(req, res, input) {
    * |x-bytes-saved  |Saved bandwidth from original photo|OriginSize - Compressed Size|
    */
 
-  input.body.pipe(sharpStream()
+  input.pipe(sharpStream()
     .metadata((err, metadata) => {
       if (err) return redirect(req, res);
 
