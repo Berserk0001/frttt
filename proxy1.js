@@ -65,34 +65,64 @@ function redirect(req, res) {
  * @param {http.ServerResponse} res - The HTTP response.
  * @param {stream.Readable} input - The input image stream.
  */
+/**
+ * Compresses and transforms the image according to request parameters.
+ * @param {http.IncomingMessage} req - The incoming HTTP request.
+ * @param {http.ServerResponse} res - The HTTP response.
+ * @param {stream.Readable} input - The input image stream.
+ */
 function compress(req, res, input) {
   sharp.cache(false);
-  sharp.simd(true);
+  sharp.simd(false);
   sharp.concurrency(availableParallelism());
   const format = req.params.webp ? "webp" : "jpeg";
+
   const sharpInstance = sharp({
     unlimited: true,
     failOn: "none",
     limitInputPixels: false,
   });
 
+
   sharpInstance
     .metadata()
     .then((metadata) => {
       if (metadata.height > MAX_HEIGHT) {
         sharpInstance.resize({
-          width: null,
           height: MAX_HEIGHT,
           withoutEnlargement: true,
         });
       }
-      return sharpInstance
+
+      res.writeHead(200, {
+        "content-type": `image/${format}`,
+        "x-original-size": req.params.originSize,
+        "Access-Control-Allow-Origin": "*",
+        "Cross-Origin-Resource-Policy": "cross-origin",
+        "Cross-Origin-Embedder-Policy": "unsafe-none",
+      });
+
+      sharpInstance
         .grayscale(req.params.grayscale)
         .toFormat(format, { quality: req.params.quality, effort: 0 })
-        .pipe(res); // Pipe the result directly to the response stream
+        .on("info", (info) => {
+          res.setHeader("content-length", info.size);
+          res.setHeader("x-bytes-saved", req.params.originSize - info.size);
+        })
+        .on("error", (err) => {
+          console.error("Sharp processing error:", err);
+          redirect(req, res);
+        });
+
+      // Pipe the input stream to Sharp and then to the response
+      input.pipe(sharpInstance).pipe(res);
     })
-    .catch(() => redirect(req, res));
+    .catch((err) => {
+      console.error("Error during metadata processing:", err);
+      redirect(req, res);
+    });
 }
+
 
 /**
  * Main proxy handler for bandwidth optimization.
