@@ -64,7 +64,7 @@ function compress(req, res, input) {
    * |x-original-size|Original photo size                |OriginSize                  |
    * |x-bytes-saved  |Saved bandwidth from original photo|OriginSize - Compressed Size|
    */
-  input.body.pipe(sharpStream()
+  input.pipe(sharpStream()
     .grayscale(req.params.grayscale)
     .toFormat(format, {
       quality: req.params.quality,
