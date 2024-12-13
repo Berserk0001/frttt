@@ -1,5 +1,5 @@
 "use strict";
-import superagent from 'superagent';
+import request from 'superagent';
 import sharp from "sharp";
 import pick from "./pick.js";
 import UserAgent from 'user-agents';
@@ -81,7 +81,7 @@ async function hhproxy(req, res) {
   const userAgent = new UserAgent();
 
   try {
-    const originRes = await superagent
+    const originRes = await request
       .get(req.params.url)
       .set({
         ...pick(req.headers, ["cookie", "dnt", "referer", "range"]),
