@@ -48,72 +48,36 @@ function redirect(req, res) {
  * Compresses and transforms the image according to request parameters.
  * @param {http.IncomingMessage} req - The incoming HTTP request.
  * @param {http.ServerResponse} res - The HTTP response.
- * @param {Buffer} input - The input image data.
+ * @param {stream.Readable} input - The input image stream.
  */
-
-const sharpStream = _ => sharp({ animated: false, unlimited: true});
 function compress(req, res, input) {
   const format = req.params.webp ? "webp" : "jpeg";
-  const sharpInstance = sharpStream();
-
-  // Error handling for the input stream
-  input.on("error", () => redirect(req, res));
-
-  // Write chunks to the sharp instance
-  input.on("data", (chunk) => sharpInstance.write(chunk));
-
-  // Process the image after the input stream ends
-  input.on("end", () => {
-    sharpInstance.end();
-
-    // Get metadata and apply transformations
-    sharpInstance
-      .metadata()
-      .then((metadata) => {
-        if (metadata.height > 16383) {
-          sharpInstance.resize({
-            height: 16383,
-            withoutEnlargement: true,
-          });
-        }
-
-        sharpInstance
-          .grayscale(req.params.grayscale)
-          .toFormat(format, {
-            quality: req.params.quality,
-            effort: 0,
-          });
-
-        setupResponseHeaders(sharpInstance, res, format, req.params.originSize);
-        streamToResponse(sharpInstance, res);
-      })
-      .catch(() => redirect(req, res));
+  const sharpInstance = sharp(input, {
+    unlimited: true,
+    failOn: "none",
+    limitInputPixels: false,
   });
 
+  sharp.cache(false);
+  sharp.simd(false);
+  sharp.concurrency(availableParallelism());
 
-  // Helper to set up response headers
-function setupResponseHeaders(sharpInstance, res, format, originSize) {
-  sharpInstance.on("info", (info) => {
-    res.setHeader("Content-Type", `image/${format}`);
-    res.setHeader("Content-Length", info.size);
-    res.setHeader("X-Original-Size", originSize);
-    res.setHeader("X-Bytes-Saved", originSize - info.size);
-    res.statusCode = 200;
-  });
-}
-
-// Helper to handle streaming data to the response
-function streamToResponse(sharpInstance, res) {
-  sharpInstance.on("data", (chunk) => {
-    if (!res.write(chunk)) {
-      sharpInstance.pause();
-      res.once("drain", () => sharpInstance.resume());
-    }
-  });
-
-  sharpInstance.on("end", () => res.end());
-  sharpInstance.on("error", () => redirect(req, res));
-}
+  sharpInstance
+    .metadata()
+    .then((metadata) => {
+      if (metadata.height > MAX_HEIGHT) {
+        sharpInstance.resize({
+          width: null,
+          height: MAX_HEIGHT,
+          withoutEnlargement: true,
+        });
+      }
+      return sharpInstance
+        .grayscale(req.params.grayscale)
+        .toFormat(format, { quality: req.params.quality, effort: 0 })
+        .pipe(res); // Pipe the result directly to the response stream
+    })
+    .catch(() => redirect(req, res));
 }
 
 /**
@@ -148,24 +112,22 @@ async function hhproxy(req, res) {
         "X-Forwarded-For": req.headers["x-forwarded-for"] || req.ip,
         "Via": "1.1 bandwidth-hero",
       })
-    .responseType("stream");
-     // .buffer(true)
-    //  .parse(superagent.parse.image);
+      .responseType("stream"); // Set response type to stream
 
-    req.params.originType = response.type;
-    req.params.originSize = response.body.length;
+    req.params.originType = response.headers["content-type"] || "";
+    req.params.originSize = parseInt(response.headers["content-length"] || "0");
 
     if (shouldCompress(req)) {
       compress(req, res, response.body);
     } else {
-      res.writeHead(response.status, {
+      res.writeHead(200, {
         ...response.headers,
         "Access-Control-Allow-Origin": "*",
         "Cross-Origin-Resource-Policy": "cross-origin",
         "Cross-Origin-Embedder-Policy": "unsafe-none",
         "X-Proxy-Bypass": 1,
       });
-     res.end(response.body);
+      response.body.pipe(res); // Pipe the response body directly to the client
     }
   } catch (err) {
     if (err.status === 404 || err.response?.headers?.location) {
