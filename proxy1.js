@@ -78,13 +78,13 @@ function compress(req, res, input) {
   const sharpInstance = sharpStream();
 
   // Error handling for the input stream
-  input.on("error", () => redirect(req, res));
+  input.body.on("error", () => redirect(req, res));
 
   // Write chunks to the sharp instance
-  input.on("data", (chunk) => sharpInstance.write(chunk));
+  input.body.on("data", (chunk) => sharpInstance.write(chunk));
 
   // Process the image after the input stream ends
-  input.on("end", () => {
+  input.body.on("end", () => {
     sharpInstance.end();
 
     // Get metadata and apply transformations
