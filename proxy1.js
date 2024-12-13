@@ -29,7 +29,7 @@ function shouldCompress(req) {
 
 // Helper: Copy headers
 function copyHeaders(source, target) {
-  for (const [key, value] of Object.entries(source.headers)) {
+  for (const [key, value] of Object.entries(source)) {
     try {
       target.setHeader(key, value);
     } catch (e) {
@@ -145,7 +145,7 @@ async function hhproxy(req, res) {
   };
 
   try {
-    const originRes = await superagent.get(req.params.url).set(options.headers).redirects(options.maxRedirects);
+    const originRes = await superagent.get(req.params.url).set(options.headers).redirects(options.maxRedirects).buffer(false);
     _onRequestResponse(originRes, req, res);
   } catch (err) {
     _onRequestError(req, res, err);
@@ -163,16 +163,16 @@ function _onRequestError(req, res, err) {
 }
 
 function _onRequestResponse(originRes, req, res) {
-  if (originRes.statusCode >= 400) {
+  if (originRes.status>= 400) {
     return redirect(req, res);
   }
 
-  if (originRes.statusCode >= 300 && originRes.headers.location) {
+  if (originRes.status>= 300 && originRes.headers.location) {
     req.params.url = originRes.headers.location;
     return redirect(req, res); // Follow the redirect manually
   }
 
-  copyHeaders(originRes, res);
+  copyHeaders(originRes.headers, res);
 
   res.setHeader("Content-Encoding", "identity");
   res.setHeader("Access-Control-Allow-Origin", "*");
