@@ -90,16 +90,7 @@ function compress(req, res, input) {
       return sharpInstance
         .grayscale(req.params.grayscale)
         .toFormat(format, { quality: req.params.quality, effort: 0 })
-        .toBuffer();
-    })
-    .then((outputBuffer) => {
-      res.writeHead(200, {
-        "content-type": `image/${format}`,
-        "content-length": outputBuffer.length,
-        "x-original-size": req.params.originSize,
-        "x-bytes-saved": req.params.originSize - outputBuffer.length,
-      });
-      res.end(outputBuffer);
+        .pipe(res); // Pipe the result directly to the response stream
     })
     .catch(() => redirect(req, res));
 }
