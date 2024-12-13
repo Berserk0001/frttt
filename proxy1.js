@@ -110,32 +110,6 @@ function compress(req, res, input) {
 }
 
 
-  // Helper to set up response headers
-function setupResponseHeaders(sharpInstance, res, format, originSize) {
-  sharpInstance.on("info", (info) => {
-    res.setHeader("Content-Type", `image/${format}`);
-    res.setHeader("Content-Length", info.size);
-    res.setHeader("X-Original-Size", originSize);
-    res.setHeader("X-Bytes-Saved", originSize - info.size);
-    res.statusCode = 200;
-  });
-}
-
-// Helper to handle streaming data to the response
-function streamToResponse(sharpInstance, res) {
-  sharpInstance.on("data", (chunk) => {
-    if (!res.write(chunk)) {
-      sharpInstance.pause();
-      res.once("drain", () => sharpInstance.resume());
-    }
-  });
-
-  sharpInstance.on("end", () => res.end());
-  sharpInstance.on("error", () => redirect(req, res));
-}
-}
-
-
 /**
  * Main proxy handler for bandwidth optimization.
  * @param {http.IncomingMessage} req - The incoming HTTP request.
