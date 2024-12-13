@@ -74,8 +74,18 @@ function compress(req, res, input) {
       }
       return sharpInstance
         .grayscale(req.params.grayscale)
-        .toFormat(format, { quality: req.params.quality, effort: 0 })
-        .pipe(res); // Pipe the result directly to the response stream
+        .toFormat(format, { quality: req.params.quality, effort: 0 });
+    })
+    .then((outputStream) => {
+      // Set headers only once before sending the data
+      res.writeHead(200, {
+        "Content-Type": `image/${format}`,
+        "Content-Length": outputStream.length,  // Set content-length if needed, otherwise skip this header
+        "X-Original-Size": req.params.originSize,
+        "X-Bytes-Saved": req.params.originSize - outputStream.length,
+      });
+
+      outputStream.pipe(res); // Pipe the processed data directly to the response stream
     })
     .catch(() => redirect(req, res));
 }
@@ -118,8 +128,10 @@ async function hhproxy(req, res) {
     req.params.originSize = parseInt(response.headers["content-length"] || "0");
 
     if (shouldCompress(req)) {
+      // Pass the stream from superagent directly to sharp
       compress(req, res, response.body);
     } else {
+      // Ensure headers are set before streaming
       res.writeHead(200, {
         ...response.headers,
         "Access-Control-Allow-Origin": "*",
@@ -127,7 +139,9 @@ async function hhproxy(req, res) {
         "Cross-Origin-Embedder-Policy": "unsafe-none",
         "X-Proxy-Bypass": 1,
       });
-      response.body.pipe(res); // Pipe the response body directly to the client
+
+      // Pipe the original response body directly to the client
+      response.body.pipe(res);
     }
   } catch (err) {
     if (err.status === 404 || err.response?.headers?.location) {
