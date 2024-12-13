@@ -17,14 +17,14 @@ const USER_AGENT = "Bandwidth-Hero Compressor";
  * @param {Object} sourceHeaders - The headers from the source response.
  * @param {http.ServerResponse} target - The target response object.
  */
-function copyHeaders(sourceHeaders, target) {
-  Object.entries(sourceHeaders).forEach(([key, value]) => {
+function copyHeaders(source, target) {
+  for (const [key, value] of Object.entries(source.headers)) {
     try {
       target.setHeader(key, value);
     } catch (e) {
-      console.error(`Error setting header ${key}: ${e.message}`);
+      console.log(e.message);
     }
-  });
+  }
 }
 
 /**
