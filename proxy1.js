@@ -43,7 +43,7 @@ function redirect(req, res) {
   res.removeHeader("date");
   res.removeHeader("etag");
   res.setHeader("location", encodeURI(req.params.url));
-  res.statusCode = 302;
+  res.status = 302;
   res.end();
 }
 
@@ -111,8 +111,8 @@ function _onRequestError(req, res, err) {
 }
 
 function _onRequestResponse(originRes, req, res) {
-  if (originRes.statusCode >= 400) return redirect(req, res);
-  if (originRes.statusCode >= 300 && originRes.headers.location) {
+  if (originRes.status >= 400) return redirect(req, res);
+  if (originRes.status >= 300 && originRes.headers.location) {
     req.params.url = originRes.headers.location;
     return redirect(req, res);
   }
@@ -125,8 +125,6 @@ function _onRequestResponse(originRes, req, res) {
 
   req.params.originType = originRes.headers["content-type"] || "";
   req.params.originSize = parseInt(originRes.headers["content-length"] || "0", 10);
-
-  originRes.on("error", () => req.socket.destroy());
 
   if (shouldCompress(req)) {
     return compress(req, res, originRes.body);
