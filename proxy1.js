@@ -138,7 +138,7 @@ async function hhproxy(req, res) {
       maxRedirections: 4,
     });
 
-    copyHeaders(originRes, res);
+    copyHeaders(response, res);
 
   res.setHeader("Content-Encoding", "identity");
   res.setHeader("Access-Control-Allow-Origin", "*");
