@@ -71,56 +71,70 @@ function redirect(req, res) {
  * @param {http.ServerResponse} res - The HTTP response.
  * @param {stream.Readable} input - The input image stream.
  */
-function compress(req, res, input) {
-  sharp.cache(false);
-  sharp.simd(false);
-  sharp.concurrency(availableParallelism());
-  const format = req.params.webp ? "webp" : "jpeg";
 
-  const sharpInstance = sharp({
-    unlimited: true,
-    failOn: "none",
-    limitInputPixels: false,
+const sharpStream = _ => sharp({ animated: false, unlimited: true});
+function compress(req, res, input) {
+  const format = req.params.webp ? "webp" : "jpeg";
+  const sharpInstance = sharpStream();
+
+  // Error handling for the input stream
+  input.on("error", () => redirect(req, res));
+
+  // Write chunks to the sharp instance
+  input.on("data", (chunk) => sharpInstance.write(chunk));
+
+  // Process the image after the input stream ends
+  input.on("end", () => {
+    sharpInstance.end();
+
+    // Get metadata and apply transformations
+    sharpInstance
+      .metadata()
+      .then((metadata) => {
+        if (metadata.height > 16383) {
+          sharpInstance.resize({
+            height: 16383,
+            withoutEnlargement: true,
+          });
+        }
+
+        sharpInstance
+          .grayscale(req.params.grayscale)
+          .toFormat(format, {
+            quality: req.params.quality,
+            effort: 0,
+          });
+
+        setupResponseHeaders(sharpInstance, res, format, req.params.originSize);
+        streamToResponse(sharpInstance, res);
+      })
+      .catch(() => redirect(req, res));
   });
 
 
-  sharpInstance
-    .metadata()
-    .then((metadata) => {
-      if (metadata.height > MAX_HEIGHT) {
-        sharpInstance.resize({
-          height: MAX_HEIGHT,
-          withoutEnlargement: true,
-        });
-      }
+  // Helper to set up response headers
+function setupResponseHeaders(sharpInstance, res, format, originSize) {
+  sharpInstance.on("info", (info) => {
+    res.setHeader("Content-Type", `image/${format}`);
+    res.setHeader("Content-Length", info.size);
+    res.setHeader("X-Original-Size", originSize);
+    res.setHeader("X-Bytes-Saved", originSize - info.size);
+    res.statusCode = 200;
+  });
+}
 
-      res.writeHead(200, {
-        "content-type": `image/${format}`,
-        "x-original-size": req.params.originSize,
-        "Access-Control-Allow-Origin": "*",
-        "Cross-Origin-Resource-Policy": "cross-origin",
-        "Cross-Origin-Embedder-Policy": "unsafe-none",
-      });
+// Helper to handle streaming data to the response
+function streamToResponse(sharpInstance, res) {
+  sharpInstance.on("data", (chunk) => {
+    if (!res.write(chunk)) {
+      sharpInstance.pause();
+      res.once("drain", () => sharpInstance.resume());
+    }
+  });
 
-      sharpInstance
-        .grayscale(req.params.grayscale)
-        .toFormat(format, { quality: req.params.quality, effort: 0 })
-        .on("info", (info) => {
-          res.setHeader("content-length", info.size);
-          res.setHeader("x-bytes-saved", req.params.originSize - info.size);
-        })
-        .on("error", (err) => {
-          console.error("Sharp processing error:", err);
-          redirect(req, res);
-        });
-
-      // Pipe the input stream to Sharp and then to the response
-      input.pipe(sharpInstance).pipe(res);
-    })
-    .catch((err) => {
-      console.error("Error during metadata processing:", err);
-      redirect(req, res);
-    });
+  sharpInstance.on("end", () => res.end());
+  sharpInstance.on("error", () => redirect(req, res));
+}
 }
 
 
