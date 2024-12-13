@@ -1,6 +1,7 @@
 "use strict";
 
 import request from 'superagent';
+import { Transform } from 'stream';
 import sharp from "sharp";
 import pick from "./pick.js";
 import UserAgent from 'user-agents';
@@ -51,22 +52,33 @@ function redirect(req, res) {
 async function compress(req, res, input) {
   const format = req.params.webp ? 'webp' : 'jpeg';
   try {
-    const output = await sharp(input)
+    const transform = sharp()
       .grayscale(req.params.grayscale)
       .toFormat(format, {
         quality: req.params.quality,
         progressive: true,
         optimizeScans: true
-      })
-      .toBuffer({ resolveWithObject: true });
+      });
 
     res.setHeader('content-type', `image/${format}`);
-    res.setHeader('content-length', output.info.size);
     res.setHeader('x-original-size', req.params.originSize);
-    res.setHeader('x-bytes-saved', req.params.originSize - output.info.size);
-    res.status(200);
-    res.write(output.data);
-    res.end();
+
+    // Create a passthrough stream to calculate the size of the output
+    const sizeCalculator = new Transform({
+      transform(chunk, encoding, callback) {
+        if (this.bytesWritten === undefined) {
+          this.bytesWritten = 0;
+        }
+        this.bytesWritten += chunk.length;
+        callback(null, chunk);
+      },
+      flush(callback) {
+        res.setHeader('x-bytes-saved', req.params.originSize - this.bytesWritten);
+        callback();
+      }
+    });
+
+    input.pipe(transform).pipe(sizeCalculator).pipe(res);
   } catch (err) {
     console.error(`Compression error: ${err.message}`);
     redirect(req, res);
