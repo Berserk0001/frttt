@@ -49,40 +49,33 @@ function redirect(req, res) {
 }
 
 // Helper: Compress
-async function compress(req, res, input) {
-  const format = req.params.webp ? 'webp' : 'jpeg';
-  try {
+function compress(req, res, input) {
+    const format = req.params.webp ? 'webp' : 'jpeg';
     const transform = sharp()
-      .grayscale(req.params.grayscale)
-      .toFormat(format, {
-        quality: req.params.quality,
-        progressive: true,
-        optimizeScans: true
-      });
+        .grayscale(req.params.grayscale)
+        .toFormat(format, {
+            quality: req.params.quality,
+            progressive: true,
+            optimizeScans: true
+        });
 
-    res.setHeader('content-type', `image/${format}`);
-    res.setHeader('x-original-size', req.params.originSize);
+    input.pipe(transform);
 
-    // Create a passthrough stream to calculate the size of the output
-    const sizeCalculator = new Transform({
-      transform(chunk, encoding, callback) {
-        if (this.bytesWritten === undefined) {
-          this.bytesWritten = 0;
-        }
-        this.bytesWritten += chunk.length;
-        callback(null, chunk);
-      },
-      flush(callback) {
-        res.setHeader('x-bytes-saved', req.params.originSize - this.bytesWritten);
-        callback();
-      }
-    });
-
-    input.pipe(transform).pipe(sizeCalculator).pipe(res);
-  } catch (err) {
-    console.error(`Compression error: ${err.message}`);
-    redirect(req, res);
-  }
+    let info;
+    transform
+        .on('info', (data) => {
+            info = data;
+            res.setHeader('content-type', `image/${format}`);
+            res.setHeader('content-length', info.size);
+            res.setHeader('x-original-size', req.params.originSize);
+            res.setHeader('x-bytes-saved', req.params.originSize - info.size);
+            res.status(200);
+        })
+        .on('error', (err) => {
+            console.error(`Compression error: ${err.message}`);
+            redirect(req, res);
+        })
+        .pipe(res);
 }
 
 // Main proxy handler for bandwidth optimization
