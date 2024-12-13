@@ -100,8 +100,7 @@ function compress(req, res, input) {
   res.setHeader('x-original-size', req.params.originSize);
   res.setHeader('x-bytes-saved', req.params.originSize - info.size);
   res.status(200);
-  res.write(outputBuffer);
-  res.end();
+  res.end(outputBuffer);
     })
     .catch(() => redirect(req, res));
 }
