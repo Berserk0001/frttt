@@ -128,15 +128,15 @@ async function hhproxy(req, res) {
   }
 
   try {
-    const response = await superagent
-      .get(req.params.url)
-      .set({
+    const response = await superagent.get(req.params.url, {
+      headers: {
         ...pick(req.headers, ["cookie", "dnt", "referer", "range"]),
-        "User-Agent": USER_AGENT,
-        "X-Forwarded-For": req.headers["x-forwarded-for"] || req.ip,
-        "Via": "1.1 bandwidth-hero",
-      })
-      .responseType("stream"); // Set response type to stream
+        "user-agent": USER_AGENT,
+        "x-forwarded-for": req.headers["x-forwarded-for"] || req.ip,
+        via: "1.1 bandwidth-hero",
+      },
+      maxRedirections: 4,
+    });
 
     copyHeaders(originRes, res);
 
@@ -151,15 +151,16 @@ async function hhproxy(req, res) {
     if (shouldCompress(req)) {
       compress(req, res, response.body);
     } else {
-      res.writeHead(200, {
-        "Access-Control-Allow-Origin": "*",
-        "Cross-Origin-Resource-Policy": "cross-origin",
-        "Cross-Origin-Embedder-Policy": "unsafe-none",
-        "X-Proxy-Bypass": 1,
-      });
-     // copyHeaders(response.headers, res); // Use copyHeaders here
-      response.body.pipe(res); // Stream original response to the client
-    }
+    res.setHeader("X-Proxy-Bypass", 1);
+
+    ["accept-ranges", "content-type", "content-length", "content-range"].forEach(header => {
+      if (response.headers[header]) {
+        res.setHeader(header, response.headers[header]);
+      }
+    });
+
+   return response.body.pipe(res);
+  }
   } catch (err) {
     if (err.status === 404 || err.response?.headers?.location) {
       redirect(req, res);
