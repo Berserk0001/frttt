@@ -66,16 +66,15 @@ function redirect(req, res) {
  * @param {stream.Readable} input - The input image stream.
  */
 function compress(req, res, input) {
+  sharp.cache(false);
+  sharp.simd(true);
+  sharp.concurrency(availableParallelism());
   const format = req.params.webp ? "webp" : "jpeg";
-  const sharpInstance = sharp(input, {
+  const sharpInstance = sharp({
     unlimited: true,
     failOn: "none",
     limitInputPixels: false,
   });
-
-  sharp.cache(false);
-  sharp.simd(false);
-  sharp.concurrency(availableParallelism());
 
   sharpInstance
     .metadata()
