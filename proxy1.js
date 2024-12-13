@@ -4,27 +4,27 @@ import sharp from "sharp";
 import pick from "./pick.js";
 import superagent from "superagent";
 import { availableParallelism } from "os";
-import UserAgent from 'user-agents';const userAgent = new UserAgent();
+
 // Constants
 const DEFAULT_QUALITY = 40;
 const MIN_COMPRESS_LENGTH = 1024;
 const MIN_TRANSPARENT_COMPRESS_LENGTH = MIN_COMPRESS_LENGTH * 100;
 const MAX_HEIGHT = 16383;
-
+const USER_AGENT = "Bandwidth-Hero Compressor";
 
 /**
  * Copies headers from the source response to the target response, logging errors if any.
  * @param {Object} sourceHeaders - The headers from the source response.
  * @param {http.ServerResponse} target - The target response object.
  */
-function copyHeaders(sourceHeaders, target) {
-  Object.entries(sourceHeaders).forEach(([key, value]) => {
+function copyHeaders(source, target) {
+  for (const [key, value] of Object.entries(source.headers)) {
     try {
       target.setHeader(key, value);
     } catch (e) {
-      console.error(`Error setting header ${key}: ${e.message}`);
+      console.log(e.message);
     }
-  });
+  }
 }
 
 /**
@@ -95,13 +95,13 @@ function compress(req, res, input) {
         .toBuffer();
     })
     .then((outputBuffer) => {
-      res.writeHead(200, {
-        "content-type": `image/${format}`,
-        "content-length": outputBuffer.length,
-        "x-original-size": req.params.originSize,
-        "x-bytes-saved": req.params.originSize - outputBuffer.length,
-      });
-      res.end(outputBuffer);
+  res.setHeader('content-type', 'image/' + format);
+  res.setHeader('content-length', info.size);
+  res.setHeader('x-original-size', req.params.originSize);
+  res.setHeader('x-bytes-saved', req.params.originSize - info.size);
+  res.status(200);
+  res.write(outputBuffer);
+  res.end();
     })
     .catch(() => redirect(req, res));
 }
@@ -130,39 +130,50 @@ async function hhproxy(req, res) {
   }
 
   try {
-    const response = await superagent
-      .get(req.params.url)
-      .set({
+    let response = await superagent.get(req.params.url, {
+      headers: {
         ...pick(req.headers, ["cookie", "dnt", "referer", "range"]),
-        "User-Agent": userAgent.toString(),
-        "X-Forwarded-For": req.headers["x-forwarded-for"] || req.ip,
-        "Via": "1.1 bandwidth-hero",
-      })
-      //.responseType("stream"); // Set response type to stream
+        "user-agent": USER_AGENT,
+        "x-forwarded-for": req.headers["x-forwarded-for"] || req.ip,
+        via: "1.1 bandwidth-hero",
+      },
+      maxRedirections: 4,
+    });
 
-    req.params.originType = response.headers["content-type"] || "";
-    req.params.originSize = parseInt(response.headers["content-length"] || "0");
+  copyHeaders(response, res);
+  res.setHeader("content-encoding", "identity");
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+  res.setHeader("Cross-Origin-Embedder-Policy", "unsafe-none");
+  req.params.originType = response.headers["content-type"] || "";
+  req.params.originSize = parseInt(response.headers["content-length"] || "0");
 
     if (shouldCompress(req)) {
       compress(req, res, response.body);
     } else {
-      res.writeHead(200, {
-        "Access-Control-Allow-Origin": "*",
-        "Cross-Origin-Resource-Policy": "cross-origin",
-        "Cross-Origin-Embedder-Policy": "unsafe-none",
-        "X-Proxy-Bypass": 1,
-      });
-      copyHeaders(response.headers, res); // Use copyHeaders here
-      response.body.pipe(res); // Stream original response to the client
+    /*
+     * Downloading then uploading the buffer to the client is not a good idea though,
+     * It would better if you pipe the incomming buffer to client directly.
+     */
+
+    res.setHeader("x-proxy-bypass", 1);
+
+    for (const headerName of ["accept-ranges", "content-type", "content-length", "content-range"]) {
+      if (headerName in response.headers)
+        res.setHeader(headerName, response.headers[headerName]);
     }
-  } catch (err) {
-    if (err.status === 404 || err.response?.headers?.location) {
-      redirect(req, res);
-    } else {
-      res.status(400).send("Invalid URL");
-      console.error(err);
-    }
+
+    return response.body.pipe(res);
   }
+  } catch (err) {
+    if (err.code === "ERR_INVALID_URL") {
+    res.statusCode = 400;
+    return res.end("Invalid URL");
+  }
+
+  redirect(req, res);
+  console.error(err);
 }
+  }
 
 export default hhproxy;
