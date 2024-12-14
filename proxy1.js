@@ -61,7 +61,7 @@ function compress(req, res, input) {
 			width: null,
 			height: 16383
 		})
-		.grayscale(grayscale)
+		.grayscale(req.params.grayscale)
 		.toFormat(format, {
 			quality: req.params.quality,
 			preset: 'picture',
