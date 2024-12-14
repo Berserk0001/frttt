@@ -54,10 +54,6 @@ function compress(req, res, input) {
     const format = 'webp';
     const key = new URL(req.params.url) || '';
     const threads = sharp.concurrency(0);
-    let resizeWidth = null
-  	let resizeHeight = null
-    let imgWidth = metadata.width
-	  let imgHeight = metadata.height
 
     const image = sharp(input);
 
@@ -66,6 +62,10 @@ function compress(req, res, input) {
             if (err) {
                 return redirect(req, res);
             }
+		let resizeWidth = null
+  	       let resizeHeight = null
+              let imgWidth = metadata.width
+	       let imgHeight = metadata.height
 
            // let pixelCount = metadata.width * metadata.height;
             let compressionQuality = req.params.quality;
