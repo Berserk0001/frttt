@@ -81,16 +81,21 @@ async function hhproxy(req, res) {
     quality: parseInt(req.query.l, 10) || DEFAULT_QUALITY,
   };
   const userAgent = new UserAgent();
+  const options = {
+    headers: {
+      ...pick(req.headers, ["cookie", "dnt", "referer", "range"]),
+      "User-Agent": userAgent.toString(),
+      "X-Forwarded-For": req.headers["x-forwarded-for"] || req.ip,
+      Via: "1.1 bandwidth-hero"
+    },
+    method: 'GET',
+    rejectUnauthorized: false,
+    maxRedirects: 4
+  };
 
   try {
     let originRes = await request
-      .get(req.params.url)
-      .set({
-        ...pick(req.headers, ["cookie", "dnt", "referer", "range"]),
-        "User-Agent": userAgent.toString(),
-        "X-Forwarded-For": req.headers["x-forwarded-for"] || req.ip,
-        Via: "1.1 bandwidth-hero",
-      })
+      .get(req.params.url, options)
       .redirects(4)
       .buffer(false);
 
