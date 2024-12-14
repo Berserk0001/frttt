@@ -1,7 +1,7 @@
 "use strict";
 
 import { URL } from 'url';
-import cacheMgr from 'cache-manager';
+import {cacheMgr} from 'cache-manager';
 import cacheStore from'cache-manager-fs-binary';
 import cache from cacheMgr.caching({
     store: cacheStore,
