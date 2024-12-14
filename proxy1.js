@@ -56,25 +56,36 @@ function compress(req, res, input) {
   
   req.params.quality = Math.ceil(compressionQuality)
   
-  sharp(input)
-    .grayscale(req.params.grayscale)
-    .toFormat(format, {
-      quality: req.params.quality,
-      progressive: true,
-      optimizeScans: true,
-      effort: 0
-    })
-    .toBuffer((err, output, info) => {
-      if (err || !info || res.headersSent) return redirect(req, res)
-
-      res.setHeader('content-type', `image/${format}`)
-      res.setHeader('content-length', info.size)
-      res.setHeader('x-original-size', req.params.originSize)
-      res.setHeader('x-bytes-saved', req.params.originSize - info.size)
-      res.status(200)
-      res.write(output)
-      res.end()
-    })
+  return sharp(input)
+		.resize({
+			width: null,
+			height: 16383
+		})
+		.grayscale(grayscale)
+		.toFormat(format, {
+			quality: req.params.quality,
+			preset: 'picture',
+			effort: 0
+		})
+		.toBuffer({resolveWithObject: true})
+		.then(({data: output, info}) => {	// this way we can also get the info about output image, like height, width
+		// .toBuffer()
+		// .then( output => {
+			return {
+				err: null,
+				headers: {
+					"content-type": `image/${format}`,
+					"content-length": info.size,
+					"x-original-size": originSize,
+					"x-bytes-saved": originSize - info.size,
+				},
+				output: output
+			};
+		}).catch(err => {
+			return {
+				err: err
+			};
+		});
 }
 
 
