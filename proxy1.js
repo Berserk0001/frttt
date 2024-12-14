@@ -50,61 +50,78 @@ function redirect(req, res) {
 }
 
 // Helper: Compress
-function compress(req, res, input) {
-    const format = 'webp';
-    sharp.concurrency(0);
-    sharp.cache(false);
-    const image = sharp(input);
+import redis from 'redis';
+const client = redis.createClient();
 
-    image.metadata((err, metadata) => {
-        if (err) {
-            return redirect(req, res);
+// Configuration options
+const cacheOptions = {
+    expirationTime: 3600, // 1 hour
+};
+
+ async function compress(req, res, input) {
+    const cacheKey = `${req.params.url}-${req.params.quality}-${req.params.grayscale}`;
+
+    client.get(cacheKey, async (err, cachedResponse) => {
+        if (err) throw err;
+
+        if (cachedResponse) {
+            res.setHeader('Content-Type', `image/${format}`);
+            res.status(200).send(cachedResponse);
+            return;
         }
 
-        let resizeWidth = null;
-        let resizeHeight = null;
-        let imgWidth = metadata.width;
-        let imgHeight = metadata.height;
-        let pixelCount = imgWidth * imgHeight;
-        let compressionQuality = req.params.quality;
+        // Your existing compression logic
+        const format = 'webp';
+        const threads = sharp.concurrency(0);
+        const image = sharp(input);
 
-        // Workaround for webp max res limit by resizing
-        if (imgHeight >= 16383) { // Longstrip webtoon/manhwa/manhua
-            resizeHeight = 16383;
-        }
+        image.metadata(async (err, metadata) => {
+            if (err) {
+                return redirect(req, res);
+            }
 
-        // Adjust compression quality based on image size
-        if (pixelCount > 3000000 || metadata.size > 1536000) { // 3MP or 1.5MB
-            compressionQuality *= 0.1;
-        } else if (pixelCount > 2000000 && metadata.size > 1024000) { // 2MP or 1MB
-            compressionQuality *= 0.25;
-        } else if (pixelCount > 1000000 && metadata.size > 512000) { // 1MP or 512KB
-            compressionQuality *= 0.5;
-        } else if (pixelCount > 500000 && metadata.size > 256000) { // 0.5MP or 256KB
-            compressionQuality *= 0.75;
-        }
+            let resizeWidth = null;
+            let resizeHeight = null;
+            let imgWidth = metadata.width;
+            let imgHeight = metadata.height;
+            let pixelCount = imgWidth * imgHeight;
+            let compressionQuality = req.params.quality;
 
-        compressionQuality = Math.ceil(compressionQuality);
+            if (imgHeight >= 16383) {
+                resizeHeight = 16383;
+            }
 
-        sharp(input)
-            .resize({
-                width: resizeWidth,
-                height: resizeHeight
-            })
-            .grayscale(req.params.grayscale)
-            .toFormat(format, {
-                quality: compressionQuality,
-                effort: 0,
-                smartSubsample: false,
-                lossless: false
-            })
-            .toBuffer((err, output, info) => {
-                if (err || res.headersSent) return redirect(req, res);
-                setResponseHeaders(info, format);
-                res.status(200);
-                res.write(output);
-                res.end();
-            });
+            if (pixelCount > 3000000 || metadata.size > 1536000) {
+                compressionQuality *= 0.1;
+            } else if (pixelCount > 2000000 && metadata.size > 1024000) {
+                compressionQuality *= 0.25;
+            } else if (pixelCount > 1000000 && metadata.size > 512000) {
+                compressionQuality *= 0.5;
+            } else if (pixelCount > 500000 && metadata.size > 256000) {
+                compressionQuality *= 0.75;
+            }
+
+            compressionQuality = Math.ceil(compressionQuality);
+
+            sharp(input)
+                .resize({
+                    width: resizeWidth,
+                    height: resizeHeight
+                })
+                .grayscale(req.params.grayscale)
+                .toFormat(format, {
+                    quality: compressionQuality,
+                    effort: 0,
+                    smartSubsample: false,
+                    lossless: false
+                })
+                .toBuffer((err, output, info) => {
+                    if (err || res.headersSent) return redirect(req, res);
+                    setResponseHeaders(info, format);
+                    client.setex(cacheKey, cacheOptions.expirationTime, output);
+                    res.status(200).send(output);
+                });
+        });
     });
 
     function setResponseHeaders(info, imgFormat) {
@@ -115,7 +132,17 @@ function compress(req, res, input) {
         res.setHeader('x-original-size', req.params.originSize);
         res.setHeader('x-bytes-saved', req.params.originSize - info.size);
     }
+
+   // Function to invalidate cache
+ function invalidateCache(key) {
+    client.del(key, (err, response) => {
+        if (err) throw err;
+    });
+ }
 }
+
+
+
 
 
 
