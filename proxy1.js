@@ -68,7 +68,7 @@ function compress(req, res, input) {
 
           // Resize if height > 16383
             if (metadata.height > 16383) {
-                image.resize(null, 16383);
+                image.resize(null, 16383, { withoutEnlargement: true });
             }
 
             //3MP or 1.5MB
