@@ -54,6 +54,10 @@ function compress(req, res, input) {
     const format = 'webp';
     const key = new URL(req.params.url) || '';
     const threads = sharp.concurrency(0);
+    let resizeWidth = null
+  	let resizeHeight = null
+    let imgWidth = metadata.width
+	  let imgHeight = metadata.height
 
     const image = sharp(input);
 
@@ -63,15 +67,15 @@ function compress(req, res, input) {
                 return redirect(req, res);
             }
 
-            let pixelCount = metadata.width * metadata.height;
+           // let pixelCount = metadata.width * metadata.height;
             let compressionQuality = req.params.quality;
 
-          // Resize if height > 16383
-            if (metadata.height > 16383) {
-                image.resize(null, 16383, { withoutEnlargement: true });
-            }
 
-            //3MP or 1.5MB
+          	//workaround for webp max res limit by resizing
+	if (imgHeight >= 16383) {	//longstrip webtoon/manhwa/manhua
+		resizeHeight = 16383
+	}
+           /* //3MP or 1.5MB
             if (pixelCount > 3000000 || metadata.size > 1536000) {
                 compressionQuality *= 0.1;
                 //2MP or 1MB
@@ -83,10 +87,14 @@ function compress(req, res, input) {
                 //0.5MP or 256KB
             } else if (pixelCount > 500000 && metadata.size > 256000) {
                 compressionQuality *= 0.75;
-            }
+            }*/
             compressionQuality = Math.ceil(compressionQuality);
 
             sharp(input)
+              .resize({
+		                	width: resizeWidth,
+	                   height: resizeHeight
+	              	})
                 .grayscale(req.params.grayscale)
                 .toFormat(format, {
                     quality: compressionQuality,
