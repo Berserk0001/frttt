@@ -108,7 +108,10 @@ export function compress(req, res, input) {
                 lossless: false
             })
             .toBuffer((err, output, info) => {
-                if (err || res.headersSent) return redirect(req, res);
+                if (err || res.headersSent) {
+                    invalidateCache(cacheKey); // Invalidate cache on error
+                    return redirect(req, res);
+                }
                 setResponseHeaders(info, format);
                 cache.set(cacheKey, output, 3600); // Cache for 1 hour
                 res.status(200).send(output);
@@ -124,7 +127,14 @@ export function compress(req, res, input) {
         res.setHeader('x-bytes-saved', req.params.originSize - info.size);
     }
 }
-
+// Function to invalidate the cache
+function invalidateCache(key) {
+    if (key) {
+        cache.del(key);
+    } else {
+        cache.flushAll();
+    }
+}
 
 // Main proxy handler for bandwidth optimization
 async function hhproxy(req, res) {
