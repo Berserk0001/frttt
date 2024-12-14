@@ -1,17 +1,7 @@
 "use strict";
 
 import { URL } from 'url';
-import {cacheMgr} from 'cache-manager';
-import cacheStore from'cache-manager-fs-binary';
-import cache from cacheMgr.caching({
-    store: cacheStore,
-    options: {
-        ttl: 604800, //7d
-        maxsize: 1073741824, //1GB
-        path: './cache',
-        preventfill: true
-    }
-})
+
 import request from 'superagent';
 import sharp from "sharp";
 import pick from "./pick.js";
@@ -61,73 +51,65 @@ function redirect(req, res) {
 
 // Helper: Compress
 function compress(req, res, input) {
-    const format = 'webp'
-    const key = new URL(req.params.url) || ''
-    const stats = sharp.cache();
-    sharp.cache( { memory: 200 } );
-    const threads = sharp.concurrency(0)
+    const format = 'webp';
+    const key = new URL(req.params.url) || '';
+    const threads = sharp.concurrency(0);
 
+    const image = sharp(input);
 
-        const image = sharp(input);
+    image
+        .metadata(function (err, metadata) {
+            if (err) {
+                return redirect(req, res);
+            }
 
-        image
-            .metadata(function (err, metadata) {
-                let pixelCount = metadata.width * metadata.height;
-                var compressionQuality = req.params.quality;
+            let pixelCount = metadata.width * metadata.height;
+            let compressionQuality = req.params.quality;
 
-                //3MP or 1.5MB
-                if (pixelCount > 3000000 || metadata.size > 1536000) {
-                    compressionQuality *= 0.1
-                    //2MP or 1MB
-                } else if (pixelCount > 2000000 && metadata.size > 1024000) {
-                    compressionQuality *= 0.25
-                    //1MP or 512KB
-                } else if (pixelCount > 1000000 && metadata.size > 512000) {
-                    compressionQuality *= 0.5
-                    //0.5MP or 256KB
-                } else if (pixelCount > 500000 && metadata.size > 256000) {
-                    compressionQuality *= 0.75
-                }
-                compressionQuality = Math.ceil(compressionQuality)
+            //3MP or 1.5MB
+            if (pixelCount > 3000000 || metadata.size > 1536000) {
+                compressionQuality *= 0.1;
+                //2MP or 1MB
+            } else if (pixelCount > 2000000 && metadata.size > 1024000) {
+                compressionQuality *= 0.25;
+                //1MP or 512KB
+            } else if (pixelCount > 1000000 && metadata.size > 512000) {
+                compressionQuality *= 0.5;
+                //0.5MP or 256KB
+            } else if (pixelCount > 500000 && metadata.size > 256000) {
+                compressionQuality *= 0.75;
+            }
+            compressionQuality = Math.ceil(compressionQuality);
 
-                cache.wrap(key, (callback) => {
-                    sharp(input)
-                        .grayscale(req.params.grayscale)
-                        .toFormat(format, {
-                            quality: compressionQuality,
-                            progressive: false,
-                            optimizeScans: false,
-                            effort: 1,
-                            smartSubsample: true,
-                            lossless: false
-
-                        })
-                        .toBuffer((err, output, info) => {
-                            callback(err, { binary: { output: output }, info: info })
-                        })
-                        
-                }, (err, obj) => {
-                    if (err || !obj || !obj.info || res.headersSent) return redirect(req, res)
-                 setResponseHeaders(obj.info, format)
-                            res.status(200)
-                            res.write(obj.binary.output)
-                            res.end()
-
-
-                    
+            sharp(input)
+                .grayscale(req.params.grayscale)
+                .toFormat(format, {
+                    quality: compressionQuality,
+                    progressive: false,
+                    optimizeScans: false,
+                    effort: 1,
+                    smartSubsample: true,
+                    lossless: false
                 })
-            })
-    
-    function setResponseHeaders(info, imgFormat) {
-        res.setHeader('content-type', `image/${imgFormat}`)
-        res.setHeader('content-length', info.size)
-        let filename = (new URL(req.params.url).pathname.split('/').pop() || "image") + '.' + format
-        res.setHeader('Content-Disposition', 'inline; filename="' + filename + '"')
-        res.setHeader('x-original-size', req.params.originSize)
-        res.setHeader('x-bytes-saved', req.params.originSize - info.size)
-    }
+                .toBuffer((err, output, info) => {
+                    if (err || res.headersSent) return redirect(req, res);
+                    setResponseHeaders(info, format);
+                    res.status(200);
+                    res.write(output);
+                    res.end();
+                });
+        });
 
+    function setResponseHeaders(info, imgFormat) {
+        res.setHeader('content-type', `image/${imgFormat}`);
+        res.setHeader('content-length', info.size);
+        let filename = (new URL(req.params.url).pathname.split('/').pop() || "image") + '.' + format;
+        res.setHeader('Content-Disposition', 'inline; filename="' + filename + '"');
+        res.setHeader('x-original-size', req.params.originSize);
+        res.setHeader('x-bytes-saved', req.params.originSize - info.size);
+    }
 }
+
 
 
 // Main proxy handler for bandwidth optimization
