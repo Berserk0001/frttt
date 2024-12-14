@@ -69,18 +69,12 @@ function compress(req, res, input) {
 		})
 		.toBuffer({resolveWithObject: true})
 		.then(({data: output, info}) => {	// this way we can also get the info about output image, like height, width
-		// .toBuffer()
-		// .then( output => {
-			return {
-				err: null,
-				headers: {
-					"content-type": `image/${format}`,
-					"content-length": info.size,
-					"x-original-size": originSize,
-					"x-bytes-saved": originSize - info.size,
-				},
-				output: output
-			};
+		  res.setHeader('content-type', 'image/' + format);
+                  res.setHeader('content-length', info.size);
+                  res.setHeader('x-original-size', req.params.originSize);                  res.setHeader('x-bytes-saved', req.params.originSize - info.size);
+                  res.status(200);
+                  res.write(output);
+                  res.end();
 		}).catch(err => {
 			return {
 				err: err
