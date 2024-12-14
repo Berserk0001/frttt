@@ -66,6 +66,11 @@ function compress(req, res, input) {
             let pixelCount = metadata.width * metadata.height;
             let compressionQuality = req.params.quality;
 
+          // Resize if height > 16383
+            if (metadata.height > 16383) {
+                image.resize(null, 16383);
+            }
+
             //3MP or 1.5MB
             if (pixelCount > 3000000 || metadata.size > 1536000) {
                 compressionQuality *= 0.1;
