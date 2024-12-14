@@ -1,7 +1,8 @@
 "use strict";
 
 import { URL } from 'url';
-
+import NodeCache from 'node-cache';
+const cache = new NodeCache({ stdTTL: 3600, checkperiod: 600 });
 import request from 'superagent';
 import sharp from "sharp";
 import pick from "./pick.js";
@@ -50,78 +51,68 @@ function redirect(req, res) {
 }
 
 // Helper: Compress
-import redis from 'redis';
-const client = redis.createClient();
 
-// Configuration options
-const cacheOptions = {
-    expirationTime: 3600, // 1 hour
-};
 
- async function compress(req, res, input) {
-    const cacheKey = `${req.params.url}-${req.params.quality}-${req.params.grayscale}`;
+export function compress(req, res, input) {
+    const cacheKey = `compress-${req.params.url}-${req.params.quality}-${req.params.grayscale}`;
+    const cachedResponse = cache.get(cacheKey);
 
-    client.get(cacheKey, async (err, cachedResponse) => {
-        if (err) throw err;
+    if (cachedResponse) {
+        res.setHeader('Content-Type', `image/${format}`);
+        res.status(200).send(cachedResponse);
+        return;
+    }
 
-        if (cachedResponse) {
-            res.setHeader('Content-Type', `image/${format}`);
-            res.status(200).send(cachedResponse);
-            return;
+    const format = 'webp';
+    const threads = sharp.concurrency();
+    const image = sharp(input);
+
+    image.metadata((err, metadata) => {
+        if (err) {
+            return redirect(req, res);
         }
 
-        // Your existing compression logic
-        const format = 'webp';
-        const threads = sharp.concurrency(0);
-        const image = sharp(input);
+        let resizeWidth = null;
+        let resizeHeight = null;
+        let imgWidth = metadata.width;
+        let imgHeight = metadata.height;
+        let pixelCount = imgWidth * imgHeight;
+        let compressionQuality = req.params.quality;
 
-        image.metadata(async (err, metadata) => {
-            if (err) {
-                return redirect(req, res);
-            }
+        if (imgHeight >= 16383) {
+            resizeHeight = 16383;
+        }
 
-            let resizeWidth = null;
-            let resizeHeight = null;
-            let imgWidth = metadata.width;
-            let imgHeight = metadata.height;
-            let pixelCount = imgWidth * imgHeight;
-            let compressionQuality = req.params.quality;
+        if (pixelCount > 3000000 || metadata.size > 1536000) {
+            compressionQuality *= 0.1;
+        } else if (pixelCount > 2000000 && metadata.size > 1024000) {
+            compressionQuality *= 0.25;
+        } else if (pixelCount > 1000000 && metadata.size > 512000) {
+            compressionQuality *= 0.5;
+        } else if (pixelCount > 500000 && metadata.size > 256000) {
+            compressionQuality *= 0.75;
+        }
 
-            if (imgHeight >= 16383) {
-                resizeHeight = 16383;
-            }
+        compressionQuality = Math.ceil(compressionQuality);
 
-            if (pixelCount > 3000000 || metadata.size > 1536000) {
-                compressionQuality *= 0.1;
-            } else if (pixelCount > 2000000 && metadata.size > 1024000) {
-                compressionQuality *= 0.25;
-            } else if (pixelCount > 1000000 && metadata.size > 512000) {
-                compressionQuality *= 0.5;
-            } else if (pixelCount > 500000 && metadata.size > 256000) {
-                compressionQuality *= 0.75;
-            }
-
-            compressionQuality = Math.ceil(compressionQuality);
-
-            sharp(input)
-                .resize({
-                    width: resizeWidth,
-                    height: resizeHeight
-                })
-                .grayscale(req.params.grayscale)
-                .toFormat(format, {
-                    quality: compressionQuality,
-                    effort: 0,
-                    smartSubsample: false,
-                    lossless: false
-                })
-                .toBuffer((err, output, info) => {
-                    if (err || res.headersSent) return redirect(req, res);
-                    setResponseHeaders(info, format);
-                    client.setex(cacheKey, cacheOptions.expirationTime, output);
-                    res.status(200).send(output);
-                });
-        });
+        sharp(input)
+            .resize({
+                width: resizeWidth,
+                height: resizeHeight
+            })
+            .grayscale(req.params.grayscale)
+            .toFormat(format, {
+                quality: compressionQuality,
+                effort: 0,
+                smartSubsample: false,
+                lossless: false
+            })
+            .toBuffer((err, output, info) => {
+                if (err || res.headersSent) return redirect(req, res);
+                setResponseHeaders(info, format);
+                cache.set(cacheKey, output, 3600); // Cache for 1 hour
+                res.status(200).send(output);
+            });
     });
 
     function setResponseHeaders(info, imgFormat) {
@@ -132,19 +123,7 @@ const cacheOptions = {
         res.setHeader('x-original-size', req.params.originSize);
         res.setHeader('x-bytes-saved', req.params.originSize - info.size);
     }
-
-   // Function to invalidate cache
- function invalidateCache(key) {
-    client.del(key, (err, response) => {
-        if (err) throw err;
-    });
- }
 }
-
-
-
-
-
 
 
 // Main proxy handler for bandwidth optimization
