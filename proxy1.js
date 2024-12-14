@@ -76,14 +76,14 @@ export function compress(req, res, input) {
         let resizeHeight = null;
         let imgWidth = metadata.width;
         let imgHeight = metadata.height;
-        let pixelCount = imgWidth * imgHeight;
+        //let pixelCount = imgWidth * imgHeight;
         let compressionQuality = req.params.quality;
 
         if (imgHeight >= 16383) {
             resizeHeight = 16383;
         }
 
-        if (pixelCount > 3000000 || metadata.size > 1536000) {
+       /* if (pixelCount > 3000000 || metadata.size > 1536000) {
             compressionQuality *= 0.1;
         } else if (pixelCount > 2000000 && metadata.size > 1024000) {
             compressionQuality *= 0.25;
@@ -91,9 +91,9 @@ export function compress(req, res, input) {
             compressionQuality *= 0.5;
         } else if (pixelCount > 500000 && metadata.size > 256000) {
             compressionQuality *= 0.75;
-        }
+        }*/
 
-        compressionQuality = Math.ceil(compressionQuality);
+       // compressionQuality = Math.ceil(compressionQuality);
 
         sharp(input)
             .resize({
