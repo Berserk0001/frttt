@@ -11,10 +11,7 @@
     "start": "node server.js"
   },
   "dependencies": {
-    "cache-manager": "^4.1.0",
-    "cache-manager-fs-binary": "^1.0.4",
-    "gif2webp-bin": "^3.0.3",
-    "is-animated": "^2.0.2",
+    "redis": "4.7.0",
     "superagent": "^9.0.2",
     "user-agents": "^1.1.374",
     "express": "4.21.2",
