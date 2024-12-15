@@ -64,7 +64,8 @@ export function compress(req, res, input) {
     }
 
     const format = 'webp';
-    const threads = sharp.concurrency();
+    sharp.cache(false);
+    sharp.concurrency(0);
     const image = sharp(input);
 
     image.metadata((err, metadata) => {
@@ -162,9 +163,9 @@ async function hhproxy(req, res) {
 
   try {
     let originRes = await request
-      .get(req.params.url, options)
-      .redirects(4)
-      .buffer(false);
+      .get(req.params.url, options);
+      originRes.redirects(4);
+      originRes.buffer(false);
 
     _onRequestResponse(originRes, req, res);
   } catch (err) {
