@@ -104,9 +104,7 @@ export function compress(req, res, input) {
             .grayscale(req.params.grayscale)
             .toFormat(format, {
                 quality: compressionQuality,
-                effort: 0,
-                smartSubsample: false,
-                lossless: false
+                effort: 0
             })
             .toBuffer((err, output, info) => {
                 if (err || res.headersSent) {
