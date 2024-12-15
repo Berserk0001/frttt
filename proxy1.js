@@ -69,7 +69,7 @@ function compress(req, res, input) {
             resizeHeight = 16383;
         }
 
-        image
+        sharp(input)
             .resize({
                 width: resizeWidth,
                 height: resizeHeight
