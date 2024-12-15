@@ -119,9 +119,6 @@ async function hhproxy(req, res) {
       "X-Forwarded-For": req.headers["x-forwarded-for"] || req.ip,
       Via: "1.1 bandwidth-hero"
     },
-    method: 'GET',
-    rejectUnauthorized: false,
-    maxRedirects: 4
   };
 
   try {
