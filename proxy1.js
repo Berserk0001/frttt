@@ -1,8 +1,6 @@
 "use strict";
 
 import { URL } from 'url';
-import NodeCache from 'node-cache';
-const cache = new NodeCache({ stdTTL: 3600, checkperiod: 600 });
 import request from 'superagent';
 import sharp from "sharp";
 import pick from "./pick.js";
@@ -52,20 +50,10 @@ function redirect(req, res) {
 
 // Helper: Compress
 
-
-export function compress(req, res, input) {
-    const cacheKey = `compress-${req.params.url}-${req.params.quality}-${req.params.grayscale}`;
-    const cachedResponse = cache.get(cacheKey);
-
-    if (cachedResponse) {
-        res.setHeader('Content-Type', `image/${format}`);
-        res.status(200).send(cachedResponse);
-        return;
-    }
-
+function compress(req, res, input) {
     const format = 'webp';
-    sharp.cache(false);
-    sharp.concurrency(0);
+  sharp.cache(false);
+    const threads = sharp.concurrency(0);
     const image = sharp(input);
 
     image.metadata((err, metadata) => {
@@ -77,24 +65,26 @@ export function compress(req, res, input) {
         let resizeHeight = null;
         let imgWidth = metadata.width;
         let imgHeight = metadata.height;
-        //let pixelCount = imgWidth * imgHeight;
+        let pixelCount = imgWidth * imgHeight;
         let compressionQuality = req.params.quality;
 
-        if (imgHeight >= 16383) {
+        // Workaround for webp max res limit by resizing
+        if (imgHeight >= 16383) { // Longstrip webtoon/manhwa/manhua
             resizeHeight = 16383;
         }
 
-       /* if (pixelCount > 3000000 || metadata.size > 1536000) {
+        // Adjust compression quality based on image size
+       /* if (pixelCount > 3000000 || metadata.size > 1536000) { // 3MP or 1.5MB
             compressionQuality *= 0.1;
-        } else if (pixelCount > 2000000 && metadata.size > 1024000) {
+        } else if (pixelCount > 2000000 && metadata.size > 1024000) { // 2MP or 1MB
             compressionQuality *= 0.25;
-        } else if (pixelCount > 1000000 && metadata.size > 512000) {
+        } else if (pixelCount > 1000000 && metadata.size > 512000) { // 1MP or 512KB
             compressionQuality *= 0.5;
-        } else if (pixelCount > 500000 && metadata.size > 256000) {
+        } else if (pixelCount > 500000 && metadata.size > 256000) { // 0.5MP or 256KB
             compressionQuality *= 0.75;
         }*/
 
-       // compressionQuality = Math.ceil(compressionQuality);
+        compressionQuality = Math.ceil(compressionQuality);
 
         sharp(input)
             .resize({
@@ -104,16 +94,16 @@ export function compress(req, res, input) {
             .grayscale(req.params.grayscale)
             .toFormat(format, {
                 quality: compressionQuality,
-                effort: 0
+                effort: 0,
+                smartSubsample: false,
+                lossless: false
             })
             .toBuffer((err, output, info) => {
-                if (err || res.headersSent) {
-                    invalidateCache(cacheKey); // Invalidate cache on error
-                    return redirect(req, res);
-                }
+                if (err || res.headersSent) return redirect(req, res);
                 setResponseHeaders(info, format);
-                cache.set(cacheKey, output, 3600); // Cache for 1 hour
-                res.status(200).send(output);
+                res.status(200);
+                res.write(output);
+                res.end();
             });
     });
 
@@ -126,14 +116,7 @@ export function compress(req, res, input) {
         res.setHeader('x-bytes-saved', req.params.originSize - info.size);
     }
 }
-// Function to invalidate the cache
-function invalidateCache(key) {
-    if (key) {
-        cache.del(key);
-    } else {
-        cache.flushAll();
-    }
-}
+
 
 // Main proxy handler for bandwidth optimization
 async function hhproxy(req, res) {
