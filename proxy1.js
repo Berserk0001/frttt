@@ -84,7 +84,7 @@ function compress(req, res, input) {
             compressionQuality *= 0.75;
         }*/
 
-        compressionQuality = Math.ceil(compressionQuality);
+      //  compressionQuality = Math.ceil(compressionQuality);
 
         sharp(input)
             .resize({
