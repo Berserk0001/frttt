@@ -1,6 +1,5 @@
 "use strict";
 
-import { URL } from 'url';
 import request from 'superagent';
 import sharp from "sharp";
 import pick from "./pick.js";
@@ -51,7 +50,7 @@ function redirect(req, res) {
 // Helper: Compress
 
 function compress(req, res, input) {
-    const format = 'webp';
+  const format = 'webp';
   sharp.cache(false);
   sharp.concurrency(1);
     const image = sharp(input);
@@ -73,20 +72,7 @@ function compress(req, res, input) {
             resizeHeight = 16383;
         }
 
-        // Adjust compression quality based on image size
-       /* if (pixelCount > 3000000 || metadata.size > 1536000) { // 3MP or 1.5MB
-            compressionQuality *= 0.1;
-        } else if (pixelCount > 2000000 && metadata.size > 1024000) { // 2MP or 1MB
-            compressionQuality *= 0.25;
-        } else if (pixelCount > 1000000 && metadata.size > 512000) { // 1MP or 512KB
-            compressionQuality *= 0.5;
-        } else if (pixelCount > 500000 && metadata.size > 256000) { // 0.5MP or 256KB
-            compressionQuality *= 0.75;
-        }*/
-
-      //  compressionQuality = Math.ceil(compressionQuality);
-
-        sharp(input)
+        image
             .resize({
                 width: resizeWidth,
                 height: resizeHeight
@@ -94,9 +80,7 @@ function compress(req, res, input) {
             .grayscale(req.params.grayscale)
             .toFormat(format, {
                 quality: compressionQuality,
-                effort: 0,
-                smartSubsample: false,
-                lossless: false
+                effort: 0
             })
             .toBuffer((err, output, info) => {
                 if (err || res.headersSent) return redirect(req, res);
@@ -110,8 +94,6 @@ function compress(req, res, input) {
     function setResponseHeaders(info, imgFormat) {
         res.setHeader('content-type', `image/${imgFormat}`);
         res.setHeader('content-length', info.size);
-        let filename = (new URL(req.params.url).pathname.split('/').pop() || "image") + '.' + format;
-        res.setHeader('Content-Disposition', 'inline; filename="' + filename + '"');
         res.setHeader('x-original-size', req.params.originSize);
         res.setHeader('x-bytes-saved', req.params.originSize - info.size);
     }
