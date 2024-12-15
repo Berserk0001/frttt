@@ -53,7 +53,7 @@ function redirect(req, res) {
 function compress(req, res, input) {
     const format = 'webp';
   sharp.cache(false);
-    const threads = sharp.concurrency(0);
+  sharp.concurrency(1);
     const image = sharp(input);
 
     image.metadata((err, metadata) => {
