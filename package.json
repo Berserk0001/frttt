@@ -11,7 +11,6 @@
     "start": "node server.js"
   },
   "dependencies": {
-    "node-cache": "^5.1.2",
     "superagent": "^9.0.2",
     "user-agents": "^1.1.374",
     "express": "4.21.2",
