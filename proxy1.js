@@ -52,7 +52,7 @@ function redirect(req, res) {
 function compress(req, res, input) {
   const format = 'webp';
   sharp.cache(false);
-  sharp.concurrency(1);
+  sharp.concurrency(0);
     const image = sharp(input);
 
     image.metadata((err, metadata) => {
@@ -62,13 +62,10 @@ function compress(req, res, input) {
 
         let resizeWidth = null;
         let resizeHeight = null;
-        let imgWidth = metadata.width;
-        let imgHeight = metadata.height;
-        let pixelCount = imgWidth * imgHeight;
         let compressionQuality = req.params.quality;
 
         // Workaround for webp max res limit by resizing
-        if (imgHeight >= 16383) { // Longstrip webtoon/manhwa/manhua
+        if (metadata.height >= 16383) { // Longstrip webtoon/manhwa/manhua
             resizeHeight = 16383;
         }
 
