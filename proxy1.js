@@ -161,9 +161,9 @@ async function hhproxy(req, res) {
 
   try {
     let originRes = await request
-      .get(req.params.url, options);
-      .redirects(4);
-      .buffer(false);
+      .get(req.params.url, options)
+      .redirects(4)
+      .buffer(false)
 
     _onRequestResponse(originRes, req, res);
   } catch (err) {
