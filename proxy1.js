@@ -68,10 +68,7 @@ function compress(req, res, input) {
 
             // Pipe the image processing stream directly to the response
             sharp(input)
-              .resize({
-                width: resizeWidth,
-                height: resizeHeight
-            })
+                .resize({ width: resizeWidth, height: resizeHeight })
                 .grayscale(req.params.grayscale)
                 .toFormat(format, {
                     quality: req.params.quality,
