@@ -73,8 +73,7 @@ if (metadata.height > 16383) {
                 .grayscale(req.params.grayscale)
                 .toFormat(format, {
                     quality: req.params.quality,
-                    progressive: true,
-                    optimizeScans: true
+                  effort: 0
                 })
                 .on('info', info => {
                     // Set response headers
