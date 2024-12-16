@@ -54,32 +54,33 @@ function compress(req, res, input) {
     sharp(input)
         .metadata()
         .then(metadata => {
-          if (metadata.height > 16383) {
-                sharp(input)
-                  .resize({ height: 16383 });
+            // Check if resizing is needed based on height
+            const resizeOptions = metadata.height > 16383 ? { height: 16383 } : null;
+
+            let transformer = sharp(input);
+
+            // Apply resize only if needed
+            if (resizeOptions) {
+                transformer = transformer.resize(resizeOptions);
             }
 
-            // Set response headers
-
-            // Pipe the image processing stream directly to the response
-           return sharp(input)
-               // .resize({ width: resizeWidth, height: resizeHeight })
+            // Apply further transformations and pipe the result
+            transformer
                 .grayscale(req.params.grayscale)
                 .toFormat(format, {
                     quality: req.params.quality,
                     progressive: true,
-                    optimizeScans: true,
-                  effort: 0
+                    optimizeScans: true
                 })
                 .on('info', info => {
-                    // Set additional headers once info is available
+                    // Set response headers
                     res.setHeader('content-type', `image/${format}`);
-                    res.setHeader('x-original-size', req.params.originSize);
                     res.setHeader('content-length', info.size);
+                    res.setHeader('x-original-size', req.params.originSize);
                     res.setHeader('x-bytes-saved', req.params.originSize - info.size);
                 })
                 .on('error', () => redirect(req, res)) // Redirect on error
-                .pipe(res); // Pipe the output directly to the response
+                .pipe(res); // Stream the processed image to the client
         })
         .catch(() => redirect(req, res)); // Handle metadata errors
 }
