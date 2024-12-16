@@ -68,7 +68,8 @@ function compress(req, res, input) {
                 .toFormat(format, {
                     quality: req.params.quality,
                     progressive: true,
-                    optimizeScans: true
+                    optimizeScans: true,
+                  effort: 0
                 })
                 .on('info', info => {
                     // Set additional headers once info is available
