@@ -54,11 +54,8 @@ function compress(req, res, input) {
     sharp(input)
         .metadata()
         .then(metadata => {
-          let resizeWidth = null;
-          let resizeHeight = null;
-            // Set resize height to null by default, limit to 16383 if it exceeds that value
-            if (metadata.height > 16383) {
-              resizeHeight = 16383;
+          if (metadata.height > 16383) {
+                sharp().resize({ height: 16383 });
             }
 
             // Set response headers
@@ -67,7 +64,7 @@ function compress(req, res, input) {
 
             // Pipe the image processing stream directly to the response
             sharp(input)
-                .resize({ width: resizeWidth, height: resizeHeight })
+               // .resize({ width: resizeWidth, height: resizeHeight })
                 .grayscale(req.params.grayscale)
                 .toFormat(format, {
                     quality: req.params.quality,
