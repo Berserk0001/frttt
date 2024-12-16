@@ -50,12 +50,21 @@ function redirect(req, res) {
 // Helper: Compress
 function compress(req, res, input) {
     const format = req.params.webp ? 'webp' : 'jpeg';
+  const image = sharp(input);
 
-    sharp(input)
+    image
         .metadata()
         .then(metadata => {
+          let resizeWidth = null;
+          let resizeHeight = null;
             // Set resize height to null by default, limit to 16383 if it exceeds that value
-            const resizeHeight = metadata.height > 16383 ? 16383 : null;
+            if (metadata.height > 16383) {
+              resizeHeight = 16383;
+                image.resize({
+                width: resizeWidth,
+                height: resizeHeight
+            })
+            }
 
             // Set response headers
             res.setHeader('content-type', `image/${format}`);
@@ -63,7 +72,6 @@ function compress(req, res, input) {
 
             // Pipe the image processing stream directly to the response
             sharp(input)
-                .resize({ height: resizeHeight }) // Apply height constraint if necessary
                 .grayscale(req.params.grayscale)
                 .toFormat(format, {
                     quality: req.params.quality,
