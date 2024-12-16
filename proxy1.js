@@ -55,7 +55,8 @@ function compress(req, res, input) {
         .metadata()
         .then(metadata => {
           if (metadata.height > 16383) {
-                sharp().resize({ height: 16383 });
+                sharp(input)
+                  .resize({ height: 16383 });
             }
 
             // Set response headers
