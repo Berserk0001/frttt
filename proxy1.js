@@ -48,17 +48,21 @@ function redirect(req, res) {
 }
 
 // Helper: Compress
-
 function compress(req, res, input) {
     const format = req.params.webp ? 'webp' : 'jpeg';
 
     sharp(input)
         .metadata()
         .then(metadata => {
-            // Set resize height to null by default and limit it to 16383 if it exceeds that value
+            // Set resize height to null by default, limit to 16383 if it exceeds that value
             const resizeHeight = metadata.height > 16383 ? 16383 : null;
 
-            return sharp(input)
+            // Set response headers
+            res.setHeader('content-type', `image/${format}`);
+            res.setHeader('x-original-size', req.params.originSize);
+
+            // Pipe the image processing stream directly to the response
+            sharp(input)
                 .resize({ height: resizeHeight }) // Apply height constraint if necessary
                 .grayscale(req.params.grayscale)
                 .toFormat(format, {
@@ -66,22 +70,16 @@ function compress(req, res, input) {
                     progressive: true,
                     optimizeScans: true
                 })
-                .toBuffer();
+                .on('info', info => {
+                    // Set additional headers once info is available
+                    res.setHeader('content-length', info.size);
+                    res.setHeader('x-bytes-saved', req.params.originSize - info.size);
+                })
+                .on('error', () => redirect(req, res)) // Redirect on error
+                .pipe(res); // Pipe the output directly to the response
         })
-        .then(outputBuffer => {
-            sharp(outputBuffer).metadata((err, info) => {
-                if (err || !info || res.headersSent) return redirect(req, res);
-
-                res.setHeader('content-type', `image/${format}`);
-                res.setHeader('content-length', info.size);
-                res.setHeader('x-original-size', req.params.originSize);
-                res.setHeader('x-bytes-saved', req.params.originSize - info.size);
-                res.status(200).send(outputBuffer);
-            });
-        })
-        .catch(() => redirect(req, res)); // Handle errors and redirect
+        .catch(() => redirect(req, res)); // Handle metadata errors
 }
-
 
 
 // Main proxy handler for bandwidth optimization
