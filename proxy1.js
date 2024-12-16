@@ -60,8 +60,6 @@ function compress(req, res, input) {
             }
 
             // Set response headers
-            res.setHeader('content-type', `image/${format}`);
-            res.setHeader('x-original-size', req.params.originSize);
 
             // Pipe the image processing stream directly to the response
             sharp(input)
@@ -75,6 +73,8 @@ function compress(req, res, input) {
                 })
                 .on('info', info => {
                     // Set additional headers once info is available
+                    res.setHeader('content-type', `image/${format}`);
+                    res.setHeader('x-original-size', req.params.originSize);
                     res.setHeader('content-length', info.size);
                     res.setHeader('x-bytes-saved', req.params.originSize - info.size);
                 })
