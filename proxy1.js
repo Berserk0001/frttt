@@ -79,21 +79,22 @@ function compress(req, res, input) {
                 quality: compressionQuality,
                 effort: 0
             })
-            .toBuffer((err, output, info) => {
+           .pipe(res)
+           /* .toBuffer((err, output, info) => {
                 if (err || res.headersSent) return redirect(req, res);
                 setResponseHeaders(info, format);
                 res.status(200);
                 res.write(output);
                 res.end();
-            });
+            });*/
     });
 
-    function setResponseHeaders(info, imgFormat) {
+   /* function setResponseHeaders(info, imgFormat) {
         res.setHeader('content-type', `image/${imgFormat}`);
         res.setHeader('content-length', info.size);
         res.setHeader('x-original-size', req.params.originSize);
         res.setHeader('x-bytes-saved', req.params.originSize - info.size);
-    }
+    }*/
 }
 
 
