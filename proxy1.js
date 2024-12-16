@@ -55,19 +55,15 @@ function compress(req, res, input) {
         .metadata()
         .then(metadata => {
             // Check if resizing is needed based on height
-          /*  const resizeOptions = metadata.height > 16383 ? { height: 16383 } : null;
+            const resizeOptions = metadata.height > 16383 ? { height: 16383 } : null;
 
             let transformer = sharp(input);
 
             // Apply resize only if needed
             if (resizeOptions) {
                 transformer = transformer.resize(resizeOptions);
-            }*/
-          let transformer = sharp(input);
-
-if (metadata.height > 16383) {
-               transformer = transformer.resize({ height: 16383 });
             }
+          
             // Apply further transformations and pipe the result
             transformer
                 .grayscale(req.params.grayscale)
