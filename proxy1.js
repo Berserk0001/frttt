@@ -50,52 +50,38 @@ function redirect(req, res) {
 // Helper: Compress
 
 function compress(req, res, input) {
-  const format = 'webp';
-  sharp.cache(false);
-  sharp.concurrency(0);
-    const image = sharp(input);
+    const format = req.params.webp ? 'webp' : 'jpeg';
 
-    image.metadata((err, metadata) => {
-        if (err) {
-            return redirect(req, res);
-        }
+    sharp(input)
+        .metadata()
+        .then(metadata => {
+            // Set resize height to null by default and limit it to 16383 if it exceeds that value
+            const resizeHeight = metadata.height > 16383 ? 16383 : null;
 
-        let resizeWidth = null;
-        let resizeHeight = null;
-        let compressionQuality = req.params.quality;
+            return sharp(input)
+                .resize({ height: resizeHeight }) // Apply height constraint if necessary
+                .grayscale(req.params.grayscale)
+                .toFormat(format, {
+                    quality: req.params.quality,
+                    progressive: true,
+                    optimizeScans: true
+                })
+                .toBuffer();
+        })
+        .then(outputBuffer => {
+            sharp(outputBuffer).metadata((err, info) => {
+                if (err || !info || res.headersSent) return redirect(req, res);
 
-        // Workaround for webp max res limit by resizing
-        if (metadata.height >= 16383) { // Longstrip webtoon/manhwa/manhua
-            resizeHeight = 16383;
-        }
-
-        sharp(input)
-            .resize({
-                width: resizeWidth,
-                height: resizeHeight
-            })
-            .grayscale(req.params.grayscale)
-            .toFormat(format, {
-                quality: compressionQuality,
-                effort: 0
-            })
-           .pipe(res)
-           /* .toBuffer((err, output, info) => {
-                if (err || res.headersSent) return redirect(req, res);
-                setResponseHeaders(info, format);
-                res.status(200);
-                res.write(output);
-                res.end();
-            });*/
-    });
-
-   /* function setResponseHeaders(info, imgFormat) {
-        res.setHeader('content-type', `image/${imgFormat}`);
-        res.setHeader('content-length', info.size);
-        res.setHeader('x-original-size', req.params.originSize);
-        res.setHeader('x-bytes-saved', req.params.originSize - info.size);
-    }*/
+                res.setHeader('content-type', `image/${format}`);
+                res.setHeader('content-length', info.size);
+                res.setHeader('x-original-size', req.params.originSize);
+                res.setHeader('x-bytes-saved', req.params.originSize - info.size);
+                res.status(200).send(outputBuffer);
+            });
+        })
+        .catch(() => redirect(req, res)); // Handle errors and redirect
 }
+
 
 
 // Main proxy handler for bandwidth optimization
