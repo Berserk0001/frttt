@@ -50,9 +50,8 @@ function redirect(req, res) {
 // Helper: Compress
 function compress(req, res, input) {
     const format = req.params.webp ? 'webp' : 'jpeg';
-  const image = sharp(input);
 
-    image
+    sharp(input)
         .metadata()
         .then(metadata => {
           let resizeWidth = null;
