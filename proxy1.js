@@ -61,7 +61,7 @@ function compress(req, res, input) {
 
             // Apply resize only if needed
             if (resizeOptions) {
-                transformer = transformer.resize(resizeOptions);
+                transformer.resize(resizeOptions);
             }
           
             // Apply further transformations and pipe the result
