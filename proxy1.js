@@ -54,35 +54,61 @@ function compress(req, res, input) {
     sharp(input)
         .metadata()
         .then(metadata => {
-            // Check if resizing is needed based on height
+            // Determine if resizing is necessary
             const resizeOptions = metadata.height > 16383 ? { height: 16383 } : null;
 
             let transformer = sharp(input);
 
-            // Apply resize only if needed
+            // Apply resizing if required
             if (resizeOptions) {
-                transformer.resize(resizeOptions);
+                transformer = transformer.resize(resizeOptions);
             }
-          
-            // Apply further transformations and pipe the result
+
+            // Apply grayscale transformation if requested
+            transformer = transformer.grayscale(req.params.grayscale);
+
+            // Set output format and quality
+            transformer = transformer.toFormat(format, {
+                quality: req.params.quality,
+                effort: 0,
+            });
+
+            // Set headers
+            res.setHeader('Content-Type', `image/${format}`);
+
+            //let totalBytes = 0;
+
+            // Stream image chunks as they are processed
             transformer
-                .grayscale(req.params.grayscale)
-                .toFormat(format, {
-                    quality: req.params.quality,
-                  effort: 0
-                })
                 .on('info', info => {
-                    // Set response headers
-                    res.setHeader('content-type', `image/${format}`);
-                    res.setHeader('content-length', info.size);
+                    res.setHeader('Content-Length', info.size);
                     res.setHeader('x-original-size', req.params.originSize);
                     res.setHeader('x-bytes-saved', req.params.originSize - info.size);
                 })
-                .on('error', () => redirect(req, res)) // Redirect on error
-                .pipe(res); // Stream the processed image to the client
+                .on('data', chunk => {
+                    // Send each chunk as it's processed
+                    //totalBytes += chunk.length;
+                    res.write(chunk);
+                })
+                .on('end', () => {
+                    // Finalize the response after all chunks are sent
+                    res.end();
+                   // console.log(`Stream completed. Total bytes sent: ${totalBytes}`);
+                })
+                .on('error', err => {
+                    console.error('Error during stream:', err);
+                    redirect(req, res); // Redirect on error
+                });
+
+            // Start the processing stream
+           // transformer.read();
         })
-        .catch(() => redirect(req, res)); // Handle metadata errors
+        .catch(err => {
+            console.error('Error processing image metadata:', err);
+            redirect(req, res); // Handle metadata errors
+        });
 }
+
 
 
 // Main proxy handler for bandwidth optimization
