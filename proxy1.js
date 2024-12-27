@@ -51,52 +51,61 @@ function redirect(req, res) {
 function compress(req, res, input) {
     const format = req.params.webp ? 'webp' : 'jpeg';
 
-    // Set up Sharp transformations
-    let transformer = sharp(input);
-
-    transformer
-        .metadata()
-        .then(metadata => {
-            // Resize if the height exceeds the limit
-            if (metadata.height > 16383) {
-                transformer = transformer.resize({ height: 16383 });
+    sharp(input)
+        .metadata((err, metadata) => {
+            if (err) {
+                console.error('Error reading image metadata:', err);
+                redirect(req, res); // Handle metadata errors
+                return;
             }
 
-            // Apply grayscale if requested
+            const resizeOptions = metadata.height > 16383 ? { height: 16383 } : null;
+
+            let transformer = sharp(input);
+
+            if (resizeOptions) {
+                transformer = transformer.resize(resizeOptions);
+            }
+
             if (req.params.grayscale) {
                 transformer = transformer.grayscale();
             }
 
-            // Set output format and quality
-            transformer = transformer.toFormat(format, {
-                quality: req.params.quality || 80,
-                effort: 0,
-            });
-
-            // Set response headers and stream data directly to the response
             res.setHeader('Content-Type', `image/${format}`);
-            res.setHeader('Transfer-Encoding', 'chunked');
 
-            // Pipe processed image data directly to the response
+            // Set headers related to the original size if available
+            if (req.params.originSize) {
+                res.setHeader('x-original-size', req.params.originSize);
+            }
+
+            // Transform the image and directly write to the response
             transformer
+                .toFormat(format, {
+                    quality: req.params.quality || 80,
+                    effort: 0,
+                })
                 .on('info', info => {
-                    // Set additional headers for original size and bytes saved
-                    res.setHeader('x-original-size', req.params.originSize);
-                    res.setHeader('x-bytes-saved', req.params.originSize - info.size);
+                    if (req.params.originSize) {
+                        res.setHeader('x-bytes-saved', req.params.originSize - info.size);
+                    }
                 })
                 .on('error', err => {
-                    console.error('Error during image processing:', err);
+                    console.error('Error processing image:', err);
                     redirect(req, res); // Handle processing errors
-                });
+                })
+                .toBuffer((err, buffer, info) => {
+                    if (err) {
+                        console.error('Error converting to buffer:', err);
+                        redirect(req, res);
+                        return;
+                    }
 
-            // Pipe the input to the transformer and then to the response
-            input.pipe(transformer).pipe(res);
-        })
-        .catch(err => {
-            console.error('Error reading metadata:', err);
-            redirect(req, res); // Handle metadata errors
+                    res.setHeader('Content-Length', buffer.length);
+                    res.end(buffer);
+                });
         });
 }
+
 
 
 
