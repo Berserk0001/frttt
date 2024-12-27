@@ -48,67 +48,58 @@ function redirect(req, res) {
 }
 
 // Helper: Compress
-function compress(req, res, input) {
+import { promises as fs } from 'fs';
+import path from 'path';
+
+export async function compress(req, res, input) {
     const format = req.params.webp ? 'webp' : 'jpeg';
+    const outputPath = path.join(process.cwd(), `output.${format}`);
 
-    sharp(input)
-        .metadata()
-        .then(metadata => {
-            // Determine if resizing is necessary
-            const resizeOptions = metadata.height > 16383 ? { height: 16383 } : null;
+    try {
+        const metadata = await sharp(input).metadata();
 
-            let transformer = sharp(input);
+        // Determine if resizing is necessary
+        const resizeOptions = metadata.height > 16383 ? { height: 16383 } : null;
 
-            // Apply resizing if required
-            if (resizeOptions) {
-                transformer = transformer.resize(resizeOptions);
-            }
+        let transformer = sharp(input);
 
-            // Apply grayscale transformation if requested
-            transformer = transformer.grayscale(req.params.grayscale);
+        // Apply resizing if required
+        if (resizeOptions) {
+            transformer = transformer.resize(resizeOptions);
+        }
 
-            // Set output format and quality
-            transformer = transformer.toFormat(format, {
-                quality: req.params.quality,
-                effort: 0,
-            });
+        // Apply grayscale transformation if requested
+        if (req.params.grayscale) {
+            transformer = transformer.grayscale();
+        }
 
-            // Set headers
-            res.setHeader('Content-Type', `image/${format}`);
-
-            //let totalBytes = 0;
-
-            // Stream image chunks as they are processed
-            transformer
-                .on('info', info => {
-                    res.setHeader('Content-Length', info.size);
-                    res.setHeader('x-original-size', req.params.originSize);
-                    res.setHeader('x-bytes-saved', req.params.originSize - info.size);
-                })
-                .on('data', chunk => {
-                    // Send each chunk as it's processed
-                    //totalBytes += chunk.length;
-                    res.write(chunk);
-                })
-                .on('end', () => {
-                    // Finalize the response after all chunks are sent
-                    res.end();
-                   // console.log(`Stream completed. Total bytes sent: ${totalBytes}`);
-                })
-                .on('error', err => {
-                    console.error('Error during stream:', err);
-                    redirect(req, res); // Redirect on error
-                });
-
-            // Start the processing stream
-           // transformer.read();
-        })
-        .catch(err => {
-            console.error('Error processing image metadata:', err);
-            redirect(req, res); // Handle metadata errors
+        // Set output format and quality
+        transformer = transformer.toFormat(format, {
+            quality: req.params.quality,
+            effort: 0,
         });
-}
 
+        // Write the transformed image to a file
+        const info = await transformer.toFile(outputPath);
+
+        // Set headers
+        res.setHeader('Content-Type', `image/${format}`);
+        res.setHeader('Content-Length', info.size);
+        res.setHeader('x-original-size', req.params.originSize);
+        res.setHeader('x-bytes-saved', req.params.originSize - info.size);
+
+        // Read the output file and send it as the response
+        const data = await fs.readFile(outputPath);
+        res.write(data);
+        res.end();
+
+        // Optionally, clean up the output file after sending the response
+        await fs.unlink(outputPath);
+    } catch (err) {
+        console.error('Error processing image:', err);
+        redirect(req, res); // Handle errors
+    }
+}
 
 
 // Main proxy handler for bandwidth optimization
