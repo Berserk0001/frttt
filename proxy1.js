@@ -48,63 +48,40 @@ function redirect(req, res) {
 }
 
 // Helper: Compress
-import fs from 'fs/promises';
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-// Get __dirname equivalent in ESM
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-export async function compress(req, res, input) {
+function compress(req, res, input) {
     const format = req.params.webp ? 'webp' : 'jpeg';
-    const tempDir = '/tmp'; // Writable directory in read-only environments like AWS Lambda
-    const outputFilePath = path.join(tempDir, `output.${format}`);
 
-    try {
-        // Get metadata
-        const metadata = await sharp(input).metadata();
+    sharp(input)
+        .metadata()
+        .then(metadata => {
+            const resizeOptions = metadata.height > 16383 ? { height: 16383 } : null;
 
-        // Determine if resizing is necessary
-        const resizeOptions = metadata.height > 16383 ? { height: 16383 } : null;
+            let transformer = sharp(input);
+            if (resizeOptions) {
+                transformer = transformer.resize(resizeOptions);
+            }
+            if (req.params.grayscale) {
+                transformer = transformer.grayscale();
+            }
 
-        let transformer = sharp(input);
-
-        // Apply resizing if required
-        if (resizeOptions) {
-            transformer = transformer.resize(resizeOptions);
-        }
-
-        // Apply grayscale transformation if requested
-        if (req.params.grayscale) {
-            transformer = transformer.grayscale();
-        }
-
-        // Process the image and save to a temporary file
-        const info = await transformer.toFormat(format, {
-            quality: req.params.quality || 80,
-            effort: 0,
-        }).toFile(outputFilePath);
-
-        // Read the processed file
-        const fileData = await fs.readFile(outputFilePath);
-
-        // Set headers
-        res.setHeader('Content-Type', `image/${format}`);
-        res.setHeader('Content-Length', info.size);
-        res.setHeader('x-original-size', req.params.originSize);
-        res.setHeader('x-bytes-saved', req.params.originSize - info.size);
-
-        // Send the image as response
-        res.end(fileData);
-
-        // Clean up the temporary file
-        await fs.unlink(outputFilePath);
-    } catch (err) {
-        console.error('Error processing image:', err);
-        redirect(req, res); // Handle errors gracefully
-    }
+            res.setHeader('Content-Type', `image/${format}`);
+            transformer
+                .toFormat(format, {
+                    quality: req.params.quality || 80,
+                    effort: 0,
+                })
+                .pipe(res)
+                .on('error', err => {
+                    console.error('Error processing image:', err);
+                    redirect(req, res); // Handle streaming errors
+                });
+        })
+        .catch(err => {
+            console.error('Error reading metadata:', err);
+            redirect(req, res); // Handle metadata errors
+        });
 }
+
 
 
 
