@@ -56,9 +56,10 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
- async function compress(req, res, input) {
+export async function compress(req, res, input) {
     const format = req.params.webp ? 'webp' : 'jpeg';
-    const outputFilePath = path.join(__dirname, `output.${format}`);
+    const tempDir = '/tmp'; // Writable directory in read-only environments like AWS Lambda
+    const outputFilePath = path.join(tempDir, `output.${format}`);
 
     try {
         // Get metadata
@@ -79,7 +80,7 @@ const __dirname = path.dirname(__filename);
             transformer = transformer.grayscale();
         }
 
-        // Process the image and save to file
+        // Process the image and save to a temporary file
         const info = await transformer.toFormat(format, {
             quality: req.params.quality || 80,
             effort: 0,
@@ -104,6 +105,7 @@ const __dirname = path.dirname(__filename);
         redirect(req, res); // Handle errors gracefully
     }
 }
+
 
 
 
