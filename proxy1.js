@@ -48,14 +48,20 @@ function redirect(req, res) {
 }
 
 // Helper: Compress
-import { promises as fs } from 'fs';
+import fs from 'fs/promises';
 import path from 'path';
+import { fileURLToPath } from 'url';
 
-export async function compress(req, res, input) {
+// Get __dirname equivalent in ESM
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+ async function compress(req, res, input) {
     const format = req.params.webp ? 'webp' : 'jpeg';
-    const outputPath = path.join(process.cwd(), `output.${format}`);
+    const outputFilePath = path.join(__dirname, `output.${format}`);
 
     try {
+        // Get metadata
         const metadata = await sharp(input).metadata();
 
         // Determine if resizing is necessary
@@ -73,14 +79,14 @@ export async function compress(req, res, input) {
             transformer = transformer.grayscale();
         }
 
-        // Set output format and quality
-        transformer = transformer.toFormat(format, {
-            quality: req.params.quality,
+        // Process the image and save to file
+        const info = await transformer.toFormat(format, {
+            quality: req.params.quality || 80,
             effort: 0,
-        });
+        }).toFile(outputFilePath);
 
-        // Write the transformed image to a file
-        const info = await transformer.toFile(outputPath);
+        // Read the processed file
+        const fileData = await fs.readFile(outputFilePath);
 
         // Set headers
         res.setHeader('Content-Type', `image/${format}`);
@@ -88,18 +94,17 @@ export async function compress(req, res, input) {
         res.setHeader('x-original-size', req.params.originSize);
         res.setHeader('x-bytes-saved', req.params.originSize - info.size);
 
-        // Read the output file and send it as the response
-        const data = await fs.readFile(outputPath);
-        res.write(data);
-        res.end();
+        // Send the image as response
+        res.end(fileData);
 
-        // Optionally, clean up the output file after sending the response
-        await fs.unlink(outputPath);
+        // Clean up the temporary file
+        await fs.unlink(outputFilePath);
     } catch (err) {
         console.error('Error processing image:', err);
-        redirect(req, res); // Handle errors
+        redirect(req, res); // Handle errors gracefully
     }
 }
+
 
 
 // Main proxy handler for bandwidth optimization
