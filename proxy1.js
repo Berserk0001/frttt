@@ -48,8 +48,12 @@ function redirect(req, res) {
 }
 
 // Helper: Compress
+import fs from 'fs';
+import path from 'path';
+
 function compress(req, res, input) {
     const format = req.params.webp ? 'webp' : 'jpeg';
+    const outputFilePath = path.join('/tmp', `output.${format}`); // Use writable temp directory
 
     sharp(input)
         .metadata((err, metadata) => {
@@ -71,40 +75,53 @@ function compress(req, res, input) {
                 transformer = transformer.grayscale();
             }
 
-            res.setHeader('Content-Type', `image/${format}`);
-
-            // Set headers related to the original size if available
-            if (req.params.originSize) {
-                res.setHeader('x-original-size', req.params.originSize);
-            }
-
-            // Transform the image and directly write to the response
+            // Write processed image to the output file
             transformer
                 .toFormat(format, {
                     quality: req.params.quality || 80,
                     effort: 0,
                 })
-                .on('info', info => {
-                    if (req.params.originSize) {
-                        res.setHeader('x-bytes-saved', req.params.originSize - info.size);
-                    }
-                })
-                .on('error', err => {
-                    console.error('Error processing image:', err);
-                    redirect(req, res); // Handle processing errors
-                })
-                .toBuffer((err, buffer, info) => {
+                .toFile(outputFilePath, (err, info) => {
                     if (err) {
-                        console.error('Error converting to buffer:', err);
-                        redirect(req, res);
+                        console.error('Error saving image file:', err);
+                        redirect(req, res); // Handle processing errors
                         return;
                     }
 
-                    res.setHeader('Content-Length', buffer.length);
-                    res.end(buffer);
+                    // Use a read stream to send the file to the client
+                    const fileStream = fs.createReadStream(outputFilePath);
+
+                    res.setHeader('Content-Type', `image/${format}`);
+                    res.setHeader('Content-Length', info.size);
+                    res.setHeader('x-original-size', req.params.originSize);
+                    res.setHeader('x-bytes-saved', req.params.originSize - info.size);
+
+                    fileStream.on('error', streamErr => {
+                        console.error('Error reading the file stream:', streamErr);
+                        redirect(req, res);
+                    });
+
+                    fileStream.on('end', () => {
+                        // Clean up the temporary file
+                        fs.unlink(outputFilePath, unlinkErr => {
+                            if (unlinkErr) {
+                                console.error('Error deleting temporary file:', unlinkErr);
+                            }
+                        });
+                    });
+
+                    // Manually stream file data to the response
+                    fileStream.on('data', chunk => {
+                        res.write(chunk);
+                    });
+
+                    fileStream.on('close', () => {
+                        res.end();
+                    });
                 });
         });
 }
+
 
 
 
