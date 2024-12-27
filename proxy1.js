@@ -51,36 +51,53 @@ function redirect(req, res) {
 function compress(req, res, input) {
     const format = req.params.webp ? 'webp' : 'jpeg';
 
-    sharp(input)
+    // Set up Sharp transformations
+    let transformer = sharp(input);
+
+    transformer
         .metadata()
         .then(metadata => {
-            const resizeOptions = metadata.height > 16383 ? { height: 16383 } : null;
-
-            let transformer = sharp(input);
-            if (resizeOptions) {
-                transformer = transformer.resize(resizeOptions);
+            // Resize if the height exceeds the limit
+            if (metadata.height > 16383) {
+                transformer = transformer.resize({ height: 16383 });
             }
+
+            // Apply grayscale if requested
             if (req.params.grayscale) {
                 transformer = transformer.grayscale();
             }
 
+            // Set output format and quality
+            transformer = transformer.toFormat(format, {
+                quality: req.params.quality || 80,
+                effort: 0,
+            });
+
+            // Set response headers and stream data directly to the response
             res.setHeader('Content-Type', `image/${format}`);
+            res.setHeader('Transfer-Encoding', 'chunked');
+
+            // Pipe processed image data directly to the response
             transformer
-                .toFormat(format, {
-                    quality: req.params.quality || 80,
-                    effort: 0,
+                .on('info', info => {
+                    // Set additional headers for original size and bytes saved
+                    res.setHeader('x-original-size', req.params.originSize);
+                    res.setHeader('x-bytes-saved', req.params.originSize - info.size);
                 })
-                .pipe(res)
                 .on('error', err => {
-                    console.error('Error processing image:', err);
-                    redirect(req, res); // Handle streaming errors
+                    console.error('Error during image processing:', err);
+                    redirect(req, res); // Handle processing errors
                 });
+
+            // Pipe the input to the transformer and then to the response
+            input.pipe(transformer).pipe(res);
         })
         .catch(err => {
             console.error('Error reading metadata:', err);
             redirect(req, res); // Handle metadata errors
         });
 }
+
 
 
 
