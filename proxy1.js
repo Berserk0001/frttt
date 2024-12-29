@@ -48,7 +48,7 @@ function redirect(req, res) {
 }
 
 // Helper: Compress
-import fs from 'fs';
+/*import fs from 'fs';
 import path from 'path';
 
 function compress(req, res, input) {
@@ -120,7 +120,43 @@ function compress(req, res, input) {
                     });
                 });
         });
+}*/
+
+function compress(req, res, input) {
+	let format = req.params.webp ? "webp" : "jpeg";
+	let compressionQuality = req.params.quality * 0.05
+
+	req.params.quality = Math.ceil(compressionQuality);
+	
+
+	return sharp(input)
+		.grayscale(req.params.grayscale)
+		.toFormat(format, {
+			quality: req.params.quality,
+			effort: 0,
+			chromaSubsampling: '4:2:0'
+		})
+		.toBuffer({resolveWithObject: true})
+		.then(({data: output,info}) => {	// this way we can also get the info about output image, like height, width
+		// .toBuffer()
+		// .then( output => {
+			return {
+				err: null,
+				headers: {
+					"content-type": `image/${format}`,
+					"content-length": info.size,
+					"x-original-size": req.params.originSize,
+					"x-bytes-saved": req.params.originSize - info.size,
+				},
+				output: output
+			};
+		}).catch(err => {
+			return {
+				err: err
+			};
+		});
 }
+
 
 
 
